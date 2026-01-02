@@ -1,0 +1,17 @@
+# Alpha Copilot Social Agent Dependencies
+
+# LLM
+google-generativeai>=0.8.0
+
+# HTTP Client
+httpx>=0.27.0
+
+# Twitter/X
+tweepy>=4.14.0
+
+# Environment
+python-dotenv>=1.0.0
+
+# Development
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
