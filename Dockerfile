@@ -14,5 +14,5 @@ COPY . .
 # Set Python path
 ENV PYTHONPATH=/app
 
-# Default command - can be overridden
-CMD ["python", "-m", "agent.main", "--help"]
+# Run agent with selective posting - only posts if compelling opportunity found
+CMD ["python", "-m", "agent.main", "--task", "Check Alpha Copilot for compelling options opportunities. Only post to twitter if you find something genuinely worth sharing - high conviction plays with clear edge. If nothing stands out, call done without posting."]
