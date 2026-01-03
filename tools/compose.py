@@ -49,18 +49,13 @@ class ComposePostTool(BaseTool):
                         "type": "string",
                         "description": "Brief explanation of why this is a good opportunity NOW"
                     },
-                    "post_type": {
-                        "type": "string",
-                        "enum": ["morning", "eod", "volatility", "sector"],
-                        "description": "Type of post for appropriate header"
-                    },
                     "platform": {
                         "type": "string",
                         "enum": ["twitter", "threads", "discord"],
                         "description": "Target platform to adapt format"
                     }
                 },
-                "required": ["symbol", "strategy", "why_now", "post_type", "platform"]
+                "required": ["symbol", "strategy", "why_now", "platform"]
             }
         }
 
@@ -69,7 +64,6 @@ class ComposePostTool(BaseTool):
         symbol: str,
         strategy: str,
         why_now: str,
-        post_type: str,
         platform: str,
         strike: str = "",
         expiration: str = "",
@@ -78,14 +72,7 @@ class ComposePostTool(BaseTool):
     ) -> str:
         """Compose a post for the target platform."""
 
-        # Determine header based on post type
-        headers = {
-            "morning": "Morning Options Alert",
-            "eod": "EOD Options Play",
-            "volatility": "High IV Alert",
-            "sector": "Sector Focus"
-        }
-        header = headers.get(post_type, "Options Alert")
+        header = "Options Alert"
 
         # Platform-specific formatting
         if platform == "twitter":

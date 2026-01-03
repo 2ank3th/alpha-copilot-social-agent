@@ -30,18 +30,11 @@ Good queries to use with query_alpha_copilot:
 - "Find bullish call options for NVDA, AMD, TSLA"
 - "Find put credit spread opportunities for QQQ"
 
-## Post Types
-
-- morning: Income strategies (covered calls, CSPs) - use at market open
-- eod: Directional plays based on momentum - use near market close
-- volatility: High IV opportunities for premium selling
-- sector: Focus on specific sector ETFs
-
 ## Process
 
 1. Check platform status to ensure it's available
 2. Check recent posts to avoid duplicating content
-3. Query Alpha Copilot with an appropriate query for the post type
+3. Query Alpha Copilot for compelling options opportunities
 4. Extract the best recommendation from the results
 5. Compose a compelling post with the compose_post tool
 6. Publish to the target platform
@@ -56,18 +49,6 @@ Good queries to use with query_alpha_copilot:
 - Always include a "why now" explanation in posts
 """
 
-TASK_TEMPLATES = {
-    "morning": "Post a morning options alert to {platform}. Focus on income strategies like covered calls or cash-secured puts for popular stocks.",
-    "eod": "Post an end-of-day options play to {platform}. Focus on directional plays based on market momentum.",
-    "volatility": "Post a high IV alert to {platform}. Find opportunities where implied volatility is elevated for premium selling.",
-    "sector": "Post a sector-focused analysis to {platform} for the {sector} sector.",
-}
-
-
-def get_task_prompt(post_type: str, platform: str, sector: str = None) -> str:
+def get_task_prompt(platform: str) -> str:
     """Generate a task prompt for the agent."""
-    template = TASK_TEMPLATES.get(post_type, TASK_TEMPLATES["morning"])
-
-    if sector:
-        return template.format(platform=platform, sector=sector)
-    return template.format(platform=platform)
+    return f"Find a compelling options opportunity and post it to {platform}. Only post if you find something genuinely worth sharing."

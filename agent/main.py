@@ -25,19 +25,12 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python -m agent.main --post morning --platform twitter
-  python -m agent.main --post eod --platform twitter
-  python -m agent.main --post volatility --platform twitter
-  python -m agent.main --post sector --sector XLF --platform twitter
-  python -m agent.main --task "Post a covered call opportunity for AAPL to twitter"
+  python -m agent.main --platform twitter
+  python -m agent.main --platform twitter --dry-run
+  python -m agent.main --task "Find a bullish play for NVDA and post to twitter"
         """
     )
 
-    parser.add_argument(
-        '--post',
-        choices=['morning', 'eod', 'volatility', 'sector'],
-        help='Type of post to create'
-    )
     parser.add_argument(
         '--platform',
         choices=['twitter', 'threads', 'discord'],
@@ -45,14 +38,9 @@ Examples:
         help='Platform to post to (default: twitter)'
     )
     parser.add_argument(
-        '--sector',
-        type=str,
-        help='Sector ETF for sector posts (e.g., XLF, XLK, XLE)'
-    )
-    parser.add_argument(
         '--task',
         type=str,
-        help='Custom task description (overrides --post)'
+        help='Custom task description'
     )
     parser.add_argument(
         '--dry-run',
@@ -61,15 +49,6 @@ Examples:
     )
 
     args = parser.parse_args()
-
-    # Validate arguments
-    if not args.post and not args.task:
-        parser.print_help()
-        sys.exit(1)
-
-    if args.post == 'sector' and not args.sector:
-        print("ERROR: --sector is required for sector posts")
-        sys.exit(1)
 
     # Apply dry run override
     if args.dry_run:
@@ -98,7 +77,7 @@ Examples:
     if args.task:
         task = args.task
     else:
-        task = get_task_prompt(args.post, args.platform, args.sector)
+        task = get_task_prompt(args.platform)
 
     print(f"Task: {task}")
     print("=" * 50)
