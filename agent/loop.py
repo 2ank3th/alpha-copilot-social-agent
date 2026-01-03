@@ -45,6 +45,10 @@ class AgentLoop:
             {"role": "user", "content": task}
         ]
 
+        # Track key outputs for evaluation
+        last_composed_tweet = None
+        last_published_content = None
+
         for iteration in range(1, self.max_iterations + 1):
             logger.info(f"Iteration {iteration}/{self.max_iterations}")
 
@@ -65,6 +69,13 @@ class AgentLoop:
                         **response.tool_call["arguments"]
                     )
                     logger.info(f"Task complete: {result}")
+
+                    # Include composed tweet in result for evaluation
+                    if last_composed_tweet:
+                        result = f"{result}\n\n{last_composed_tweet}"
+                    elif last_published_content:
+                        result = f"{result}\n\nPUBLISHED_CONTENT:\n{last_published_content}"
+
                     return result
 
                 # 3. Execute tool if called
@@ -74,12 +85,29 @@ class AgentLoop:
 
                     logger.info(f"Executing tool: {tool_name} with args: {tool_args}")
 
-                    try:
-                        result = self.tools.execute(tool_name, **tool_args)
-                        logger.info(f"Tool result: {result[:200]}...")
-                    except Exception as e:
-                        result = f"TOOL_ERROR: {str(e)}"
-                        logger.error(f"Tool execution failed: {e}")
+                    # Handle google_search specially - grounding already happened
+                    # during the API call, so we just note it and continue
+                    if tool_name == "google_search":
+                        logger.info("Google Search grounding was used - continuing with grounded context")
+                        result = f"GROUNDING: Web search completed for: {tool_args.get('query', 'N/A')}. Results incorporated into context. Proceed with your analysis."
+                        if response.grounding_sources:
+                            result += f"\nSources: {', '.join(response.grounding_sources[:3])}"
+                    else:
+                        try:
+                            result = self.tools.execute(tool_name, **tool_args)
+                            logger.info(f"Tool result: {result[:200]}...")
+
+                            # Track compose_post output for evaluation
+                            if tool_name == "compose_post" and "COMPOSED_POST:" in result:
+                                last_composed_tweet = result
+
+                            # Track publish output
+                            if tool_name == "publish":
+                                last_published_content = tool_args.get("content", "")
+
+                        except Exception as e:
+                            result = f"TOOL_ERROR: {str(e)}"
+                            logger.error(f"Tool execution failed: {e}")
 
                     # 4. Add to context
                     messages.append({

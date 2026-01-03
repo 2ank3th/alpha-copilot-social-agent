@@ -29,6 +29,10 @@ class ComposePostTool(BaseTool):
                         "type": "string",
                         "description": "Options strategy (e.g., Covered Call, Iron Condor)"
                     },
+                    "thesis": {
+                        "type": "string",
+                        "description": "Investment thesis - the story/catalyst driving this trade (e.g., 'NVDA surging on new AI chip announcement')"
+                    },
                     "strike": {
                         "type": "string",
                         "description": "Strike price info (e.g., '$280 (3% OTM)')"
@@ -47,7 +51,7 @@ class ComposePostTool(BaseTool):
                     },
                     "why_now": {
                         "type": "string",
-                        "description": "Brief explanation of why this is a good opportunity NOW"
+                        "description": "Brief explanation of timing rationale"
                     },
                     "platform": {
                         "type": "string",
@@ -55,7 +59,7 @@ class ComposePostTool(BaseTool):
                         "description": "Target platform to adapt format"
                     }
                 },
-                "required": ["symbol", "strategy", "why_now", "platform"]
+                "required": ["symbol", "strategy", "thesis", "platform"]
             }
         }
 
@@ -63,12 +67,13 @@ class ComposePostTool(BaseTool):
         self,
         symbol: str,
         strategy: str,
-        why_now: str,
+        thesis: str,
         platform: str,
         strike: str = "",
         expiration: str = "",
         premium: str = "",
-        pop: str = ""
+        pop: str = "",
+        why_now: str = ""
     ) -> str:
         """Compose a post for the target platform."""
 
@@ -77,19 +82,19 @@ class ComposePostTool(BaseTool):
         # Platform-specific formatting
         if platform == "twitter":
             return self._format_twitter(
-                header, symbol, strategy, strike, expiration, premium, pop, why_now
+                header, symbol, strategy, thesis, strike, expiration, premium, pop, why_now
             )
         elif platform == "threads":
             return self._format_threads(
-                header, symbol, strategy, strike, expiration, premium, pop, why_now
+                header, symbol, strategy, thesis, strike, expiration, premium, pop, why_now
             )
         else:
             return self._format_twitter(
-                header, symbol, strategy, strike, expiration, premium, pop, why_now
+                header, symbol, strategy, thesis, strike, expiration, premium, pop, why_now
             )
 
     def _format_twitter(
-        self, header: str, symbol: str, strategy: str,
+        self, header: str, symbol: str, strategy: str, thesis: str,
         strike: str, expiration: str, premium: str, pop: str, why_now: str
     ) -> str:
         """Format for Twitter (280 char limit)."""
@@ -108,42 +113,62 @@ class ComposePostTool(BaseTool):
             stats_parts.append(f"POP: {pop}")
         stats_line = " | ".join(stats_parts) if stats_parts else ""
 
-        # Build tweet
-        tweet_parts = [header, "", f"${symbol} {strategy}"]
+        # Build tweet with thesis at top
+        tweet_parts = [header, ""]
+
+        # Add thesis (the story)
+        if thesis:
+            tweet_parts.append(thesis)
+            tweet_parts.append("")
+
+        tweet_parts.append(f"${symbol} {strategy}")
 
         if metrics_line:
             tweet_parts.append(metrics_line)
         if stats_line:
             tweet_parts.append(stats_line)
 
-        tweet_parts.append("")
+        # Add symbol-specific hashtag
+        hashtags = f"#{symbol} #options"
 
-        # Calculate remaining space for why_now
+        # Calculate remaining space
         base = "\n".join(tweet_parts)
-        hashtags = "\n#options #trading"
-        remaining = 280 - len(base) - len(hashtags) - 1
+        full = base + "\n" + hashtags
 
-        if len(why_now) > remaining:
-            why_now = why_now[:remaining - 3] + "..."
+        # Truncate thesis if needed to fit
+        if len(full) > 280 and thesis:
+            max_thesis_len = 280 - (len(full) - len(thesis)) - 3
+            if max_thesis_len > 20:
+                thesis = thesis[:max_thesis_len] + "..."
+                # Rebuild tweet
+                tweet_parts = [header, "", thesis, "", f"${symbol} {strategy}"]
+                if metrics_line:
+                    tweet_parts.append(metrics_line)
+                if stats_line:
+                    tweet_parts.append(stats_line)
 
-        tweet_parts.append(why_now)
-        tweet_parts.append("#options #trading")
-
+        tweet_parts.append(hashtags)
         composed = "\n".join(tweet_parts)
 
         return f"COMPOSED_POST:\n{composed}\n\nCHARACTER_COUNT: {len(composed)}"
 
     def _format_threads(
-        self, header: str, symbol: str, strategy: str,
+        self, header: str, symbol: str, strategy: str, thesis: str,
         strike: str, expiration: str, premium: str, pop: str, why_now: str
     ) -> str:
         """Format for Threads (500 char limit, more room for detail)."""
         post_parts = [
             f"{header}",
-            "",
-            f"${symbol} {strategy}",
             ""
         ]
+
+        # Add thesis at top (the story)
+        if thesis:
+            post_parts.append(thesis)
+            post_parts.append("")
+
+        post_parts.append(f"${symbol} {strategy}")
+        post_parts.append("")
 
         if strike:
             post_parts.append(f"Strike: {strike}")
@@ -154,10 +179,12 @@ class ComposePostTool(BaseTool):
         if pop:
             post_parts.append(f"Probability of Profit: {pop}")
 
+        if why_now:
+            post_parts.append("")
+            post_parts.append(why_now[:200])
+
         post_parts.append("")
-        post_parts.append(why_now[:300])
-        post_parts.append("")
-        post_parts.append("#options #trading #stocks")
+        post_parts.append(f"#{symbol} #options #trading")
 
         composed = "\n".join(post_parts)
 

@@ -28,6 +28,7 @@ Examples:
   python -m agent.main --platform twitter
   python -m agent.main --platform twitter --dry-run
   python -m agent.main --task "Find a bullish play for NVDA and post to twitter"
+  python -m agent.main --eval --runs 5
         """
     )
 
@@ -47,6 +48,17 @@ Examples:
         action='store_true',
         help='Run without actually posting (overrides DRY_RUN env var)'
     )
+    parser.add_argument(
+        '--eval',
+        action='store_true',
+        help='Run evaluation mode: execute agent multiple times and score outputs'
+    )
+    parser.add_argument(
+        '--runs',
+        type=int,
+        default=5,
+        help='Number of evaluation runs (default: 5, only used with --eval)'
+    )
 
     args = parser.parse_args()
 
@@ -54,7 +66,35 @@ Examples:
     if args.dry_run:
         Config.DRY_RUN = True
 
-    # Print configuration
+    # Evaluation mode
+    if args.eval:
+        print("=" * 50)
+        print("Alpha Copilot Social Agent - EVALUATION MODE")
+        print("=" * 50)
+        print(f"Platform: {args.platform}")
+        print(f"Runs: {args.runs}")
+        print(f"Backend: {Config.ALPHA_COPILOT_API_URL}")
+        print(f"LLM Model: {Config.LLM_MODEL}")
+        print("=" * 50)
+
+        if not Config.validate_llm():
+            print("ERROR: GEMINI_API_KEY not configured")
+            sys.exit(1)
+
+        from .eval import run_evaluation
+        try:
+            report = run_evaluation(platform=args.platform, num_runs=args.runs)
+            # Exit based on average score (>60% = success)
+            if report.get("percentage", 0) >= 60:
+                sys.exit(0)
+            else:
+                sys.exit(1)
+        except Exception as e:
+            logger.exception("Evaluation failed")
+            print(f"ERROR: {e}")
+            sys.exit(1)
+
+    # Normal mode
     print("=" * 50)
     print("Alpha Copilot Social Agent")
     print("=" * 50)

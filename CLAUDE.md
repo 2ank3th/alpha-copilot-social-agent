@@ -9,73 +9,133 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 pip install -r requirements.txt
 
 # Run agent (dry-run mode - no actual posting)
-python -m agent.main --post morning --platform twitter --dry-run
+python -m agent.main --platform twitter --dry-run
 
 # Run agent for real posting
-python -m agent.main --post morning --platform twitter
+python -m agent.main --platform twitter
 
 # Custom task
 python -m agent.main --task "Post a bullish play for NVDA to twitter"
 
+# Run evaluation (score agent output quality)
+python -m agent.main --eval --runs 5
+
 # Run tests
 pytest
+```
 
-# Run single test
-pytest tests/test_file.py::test_name
+## Error Handling Policy
+
+**No silent fallbacks. Use exceptions that are gracefully caught.**
+
+- Do NOT use fallback behavior that silently degrades functionality
+- Raise exceptions when features are unavailable or misconfigured
+- Catch exceptions at appropriate boundaries and log clearly
+- Let failures surface to the caller so they can be addressed
+
+Example - WRONG:
+```python
+try:
+    enable_grounding()
+except Exception:
+    # Silent fallback - BAD
+    pass
+```
+
+Example - RIGHT:
+```python
+try:
+    enable_grounding()
+except GroundingError as e:
+    logger.error(f"Grounding failed: {e}")
+    raise  # Let caller handle it
 ```
 
 ## Architecture
 
-This is a **ReAct (Reason + Act) pattern** agent that autonomously posts options trading insights to social media.
+This is an **idea-driven ReAct agent** with Google Search grounding that:
+1. Researches market trends via web search
+2. Forms an investment thesis
+3. Finds options via Alpha Copilot
+4. Posts story-driven content
 
-### Core Loop (`agent/loop.py`)
+### Agent Flow
 
-The agent runs in a while loop where the LLM:
-1. Reasons about current state
-2. Selects a tool to call (via JSON in text response)
-3. Tool executes and returns result
-4. Result added to context
-5. Repeats until `done` tool called or max iterations (default: 10)
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    AGENT LOOP (with Grounding)                  │
+│                                                                 │
+│   LLM (Gemini + Google Search Grounding)                        │
+│   ├── Researches web automatically while reasoning              │
+│   ├── Forms thesis from findings                                │
+│   └── Calls tools to execute                                    │
+│                                                                 │
+│   Iteration 1-2: Research & Ideate (grounding active)           │
+│     "What's moving today? → NVDA up 5% on AI news"              │
+│     "Thesis: NVDA momentum likely to continue"                  │
+│                                                                 │
+│   Iteration 3: query_alpha_copilot("bullish NVDA options")      │
+│   Iteration 4: compose_post(thesis + options)                   │
+│   Iteration 5: publish()                                        │
+│   Iteration 6: done()                                           │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ### Key Components
 
 **Agent Layer** (`agent/`)
-- `main.py` - CLI entry point, handles args and configuration
-- `loop.py` - ReAct loop implementation, creates agent with registered tools
-- `llm.py` - Gemini client with text-based tool calling (parses JSON from responses)
-- `config.py` - Environment-based configuration via `Config` class
+- `main.py` - CLI entry point with `--eval` mode
+- `loop.py` - ReAct loop implementation
+- `llm.py` - Gemini client using `google-genai` package with Google Search grounding
+- `eval.py` - Evaluation layer for scoring output quality
+- `config.py` - Environment-based configuration
+
+**LLM Package**: Uses `google-genai` (NOT deprecated `google-generativeai`)
 
 **Tools** (`tools/`)
-- Extend `BaseTool` abstract class with `name`, `description`, `get_schema()`, `execute()`
-- Registered via `ToolRegistry` in `agent/loop.py:create_agent()`
-- Available tools: `query_alpha_copilot`, `compose_post`, `publish`, `check_recent_posts`, `get_platform_status`, `done`
+- Extend `BaseTool` abstract class
+- Tools: `query_alpha_copilot`, `compose_post` (with thesis), `publish`, `check_recent_posts`, `get_platform_status`, `done`
 
 **Platforms** (`platforms/`)
-- Extend `BasePlatform` with `name`, `max_length`, `publish()`, `get_recent_posts()`, `health_check()`
-- Currently only Twitter implemented
+- Extend `BasePlatform`
+- Currently Twitter implemented
 
 **Prompts** (`prompts/system.py`)
-- `SYSTEM_PROMPT` - Agent instructions and guidelines
-- `TASK_TEMPLATES` - Templates for different post types (morning, eod, volatility, sector)
+- Research-first flow prompting
+- Guides agent to form thesis before finding options
 
-### Data Flow
+### Evaluation Layer
 
-1. CLI parses args, generates task from template or custom input
-2. Agent queries Alpha Copilot backend API for options analysis
-3. LLM composes post content based on recommendations
-4. Post published to target platform (or logged in dry-run mode)
+Run `--eval` to score agent output quality:
+- Runs agent N times
+- LLM judge scores each tweet on 5 criteria (50 points max):
+  - Thesis Clarity (1-10)
+  - News-Driven (1-10)
+  - Actionable (1-10)
+  - Engagement (1-10)
+  - Originality (1-10)
+- Generates report with averages and best/worst runs
 
 ## Configuration
 
-Set via environment variables (`.env` file):
+Environment variables (`.env` file):
 - `GEMINI_API_KEY` - Required for LLM
 - `ALPHA_COPILOT_API_URL` - Backend API (default: localhost:8002)
-- `TWITTER_*` - Twitter API credentials (required for real posting)
-- `DRY_RUN` - Set to `true` to skip actual posting (default: true)
+- `TWITTER_*` - Twitter API credentials
+- `DRY_RUN` - Set to `true` to skip posting (default: true)
 
-## Adding New Platforms
+## Post Format
 
-1. Create `platforms/<name>.py` extending `BasePlatform`
-2. Implement `publish()`, `get_recent_posts()`, `health_check()`
-3. Register in `platforms/__init__.py`
-4. Add to `PLATFORMS` dict in `tools/publish.py`
+Posts now lead with thesis (the story):
+
+```
+Options Alert
+
+NVDA surging on new AI chip announcement.
+
+$NVDA Call Option
+$145 | Exp: Jan 17
+Premium: $3.20 | POP: 45%
+
+#NVDA #options
+```

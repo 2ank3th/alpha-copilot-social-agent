@@ -14,5 +14,5 @@ COPY . .
 # Set Python path
 ENV PYTHONPATH=/app
 
-# Run agent with selective posting - only posts if compelling opportunity found
-CMD ["python", "-m", "agent.main", "--task", "Check Alpha Copilot for compelling options opportunities. Only post to twitter if you find something genuinely worth sharing - high conviction plays with clear edge. If nothing stands out, call done without posting."]
+# Run agent - research market trends, form thesis, find options, post if compelling
+CMD ["python", "-m", "agent.main", "--task", "Research today's market trends to find a compelling trading idea. Form a thesis (what stock, why bullish/bearish, what catalyst). Use Alpha Copilot to find options matching your thesis. Post to twitter only if the idea is genuinely interesting. If nothing stands out, call done without posting."]
