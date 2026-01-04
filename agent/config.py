@@ -27,6 +27,17 @@ class Config:
     TWITTER_ACCESS_SECRET: str = os.getenv("TWITTER_ACCESS_SECRET", "")
     TWITTER_BEARER_TOKEN: str = os.getenv("TWITTER_BEARER_TOKEN", "")
 
+    # Threads Credentials (Meta Graph API)
+    THREADS_ACCESS_TOKEN: str = os.getenv("THREADS_ACCESS_TOKEN", "")
+    THREADS_USER_ID: str = os.getenv("THREADS_USER_ID", "")
+
+    # Alpha Copilot Promotional Settings
+    ALPHA_COPILOT_URL: str = os.getenv(
+        "ALPHA_COPILOT_URL",
+        "https://alphacopilot.ai"
+    )
+    ENABLE_PROMO_POST: bool = os.getenv("ENABLE_PROMO_POST", "true").lower() == "true"
+
     # Agent Settings
     MAX_ITERATIONS: int = int(os.getenv("MAX_ITERATIONS", "10"))
     DRY_RUN: bool = os.getenv("DRY_RUN", "true").lower() == "true"
@@ -47,10 +58,19 @@ class Config:
         ])
 
     @classmethod
+    def validate_threads(cls) -> bool:
+        """Check if Threads credentials are configured."""
+        return all([
+            cls.THREADS_ACCESS_TOKEN,
+            cls.THREADS_USER_ID,
+        ])
+
+    @classmethod
     def get_enabled_platforms(cls) -> list:
         """Return list of platforms with valid credentials."""
         platforms = []
         if cls.validate_twitter():
             platforms.append("twitter")
-        # Add more platforms here as they're implemented
+        if cls.validate_threads():
+            platforms.append("threads")
         return platforms

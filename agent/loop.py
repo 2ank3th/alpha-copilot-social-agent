@@ -113,7 +113,13 @@ def create_agent() -> AgentLoop:
     """Create and configure the agent with all tools."""
     from tools.alpha_copilot import QueryAlphaCopilotTool
     from tools.compose import ComposePostTool
-    from tools.publish import PublishTool, CheckRecentPostsTool, GetPlatformStatusTool, DoneTool
+    from tools.publish import (
+        PublishTool,
+        CheckRecentPostsTool,
+        GetPlatformStatusTool,
+        CrossPostTool,
+        DoneTool,
+    )
 
     # Initialize LLM
     llm = LLMClient()
@@ -123,6 +129,7 @@ def create_agent() -> AgentLoop:
     tools.register(QueryAlphaCopilotTool())
     tools.register(ComposePostTool())
     tools.register(PublishTool())
+    tools.register(CrossPostTool())  # Cross-post to Twitter + Threads
     tools.register(CheckRecentPostsTool())
     tools.register(GetPlatformStatusTool())
     tools.register(DoneTool())

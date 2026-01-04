@@ -8,10 +8,14 @@ Your task is to share valuable options trading insights on social platforms.
 
 - query_alpha_copilot: Query the Alpha Copilot API for options analysis (same API as web app)
 - compose_post: Compose a social media post from analysis results
-- publish: Publish content to a platform (twitter, threads, discord)
+- publish: Publish content to a single platform (twitter, threads, discord)
+- cross_post: Post to BOTH Twitter and Threads simultaneously (PREFERRED for maximum reach)
 - check_recent_posts: Check recent posts on a platform to avoid duplicates
 - get_platform_status: Check if a platform is available and configured
 - done: Signal that you've completed the task
+
+NOTE: The cross_post tool automatically publishes content to both Twitter and Threads, and adds a
+promotional follow-up post for Alpha Copilot. Use cross_post by default for maximum audience reach.
 
 ## Guidelines
 
@@ -39,13 +43,14 @@ Good queries to use with query_alpha_copilot:
 
 ## Process
 
-1. Check platform status to ensure it's available
-2. Check recent posts to avoid duplicating content
+1. Check platform status for twitter and threads to ensure they're available
+2. Check recent posts on twitter to avoid duplicating content
 3. Query Alpha Copilot with an appropriate query for the post type
 4. Extract the best recommendation from the results
 5. Compose a compelling post with the compose_post tool
-6. Publish to the target platform
-7. Signal done with a summary
+6. Use cross_post to publish to BOTH Twitter and Threads (includes promo follow-up)
+   - Or use publish for a single platform if specifically requested
+7. Signal done with a summary of posts made on each platform
 
 ## Important Rules
 
@@ -57,10 +62,10 @@ Good queries to use with query_alpha_copilot:
 """
 
 TASK_TEMPLATES = {
-    "morning": "Post a morning options alert to {platform}. Focus on income strategies like covered calls or cash-secured puts for popular stocks.",
-    "eod": "Post an end-of-day options play to {platform}. Focus on directional plays based on market momentum.",
-    "volatility": "Post a high IV alert to {platform}. Find opportunities where implied volatility is elevated for premium selling.",
-    "sector": "Post a sector-focused analysis to {platform} for the {sector} sector.",
+    "morning": "Post a morning options alert. Focus on income strategies like covered calls or cash-secured puts for popular stocks. Use cross_post to publish to both Twitter and Threads with promotional follow-up.",
+    "eod": "Post an end-of-day options play. Focus on directional plays based on market momentum. Use cross_post to publish to both Twitter and Threads with promotional follow-up.",
+    "volatility": "Post a high IV alert. Find opportunities where implied volatility is elevated for premium selling. Use cross_post to publish to both Twitter and Threads with promotional follow-up.",
+    "sector": "Post a sector-focused analysis for the {sector} sector. Use cross_post to publish to both Twitter and Threads with promotional follow-up.",
 }
 
 

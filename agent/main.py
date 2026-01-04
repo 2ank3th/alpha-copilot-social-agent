@@ -25,11 +25,12 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python -m agent.main --post morning --platform twitter
-  python -m agent.main --post eod --platform twitter
-  python -m agent.main --post volatility --platform twitter
-  python -m agent.main --post sector --sector XLF --platform twitter
-  python -m agent.main --task "Post a covered call opportunity for AAPL to twitter"
+  python -m agent.main --post morning              # Cross-post to Twitter + Threads
+  python -m agent.main --post eod                  # Cross-post to Twitter + Threads
+  python -m agent.main --post morning --no-promo   # Skip promotional follow-up
+  python -m agent.main --post sector --sector XLF  # Sector-focused cross-post
+  python -m agent.main --post morning --dry-run    # Test without posting
+  python -m agent.main --task "Post a bullish play for NVDA"
         """
     )
 
@@ -59,6 +60,11 @@ Examples:
         action='store_true',
         help='Run without actually posting (overrides DRY_RUN env var)'
     )
+    parser.add_argument(
+        '--no-promo',
+        action='store_true',
+        help='Skip promotional follow-up post'
+    )
 
     args = parser.parse_args()
 
@@ -75,14 +81,21 @@ Examples:
     if args.dry_run:
         Config.DRY_RUN = True
 
+    # Apply promo override
+    if args.no_promo:
+        Config.ENABLE_PROMO_POST = False
+
     # Print configuration
     print("=" * 50)
     print("Alpha Copilot Social Agent")
     print("=" * 50)
-    print(f"Platform: {args.platform}")
+    print(f"Platform: {args.platform} (cross-post to Twitter + Threads by default)")
     print(f"DRY_RUN: {Config.DRY_RUN}")
+    print(f"Promo posts: {Config.ENABLE_PROMO_POST}")
     print(f"Backend: {Config.ALPHA_COPILOT_API_URL}")
     print(f"LLM Model: {Config.LLM_MODEL}")
+    print(f"Twitter configured: {Config.validate_twitter()}")
+    print(f"Threads configured: {Config.validate_threads()}")
     print("=" * 50)
 
     # Validate configuration
@@ -90,9 +103,11 @@ Examples:
         print("ERROR: GEMINI_API_KEY not configured")
         sys.exit(1)
 
-    if not Config.DRY_RUN and not Config.validate_twitter() and args.platform == 'twitter':
-        print("ERROR: Twitter credentials not configured. Use --dry-run or set credentials.")
-        sys.exit(1)
+    if not Config.DRY_RUN:
+        if not Config.validate_twitter():
+            print("WARNING: Twitter credentials not configured. Twitter posts will be skipped.")
+        if not Config.validate_threads():
+            print("WARNING: Threads credentials not configured. Threads posts will be skipped.")
 
     # Generate task
     if args.task:
