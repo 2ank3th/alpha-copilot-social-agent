@@ -14,6 +14,7 @@ class Config:
         "ALPHA_COPILOT_API_URL",
         "http://localhost:8002"
     )
+    ALPHA_COPILOT_API_KEY: str = os.getenv("ALPHA_COPILOT_API_KEY", "")
 
     # LLM Configuration
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
@@ -46,6 +47,11 @@ class Config:
     def validate_llm(cls) -> bool:
         """Check if LLM configuration is valid."""
         return bool(cls.GEMINI_API_KEY)
+
+    @classmethod
+    def validate_alpha_copilot(cls) -> bool:
+        """Check if Alpha Copilot API credentials are configured."""
+        return bool(cls.ALPHA_COPILOT_API_KEY)
 
     @classmethod
     def validate_twitter(cls) -> bool:

@@ -93,12 +93,17 @@ Examples:
     print(f"DRY_RUN: {Config.DRY_RUN}")
     print(f"Promo posts: {Config.ENABLE_PROMO_POST}")
     print(f"Backend: {Config.ALPHA_COPILOT_API_URL}")
+    print(f"Backend API Key: {'configured' if Config.validate_alpha_copilot() else 'NOT SET'}")
     print(f"LLM Model: {Config.LLM_MODEL}")
     print(f"Twitter configured: {Config.validate_twitter()}")
     print(f"Threads configured: {Config.validate_threads()}")
     print("=" * 50)
 
     # Validate configuration
+    if not Config.validate_alpha_copilot():
+        print("ERROR: ALPHA_COPILOT_API_KEY not configured")
+        sys.exit(1)
+
     if not Config.validate_llm():
         print("ERROR: GEMINI_API_KEY not configured")
         sys.exit(1)

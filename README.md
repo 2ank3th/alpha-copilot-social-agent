@@ -89,6 +89,7 @@ python -m agent.main --task "Post a bullish play for NVDA"
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `ALPHA_COPILOT_API_URL` | Backend API URL | Yes |
+| `ALPHA_COPILOT_API_KEY` | Backend API key for authentication | Yes |
 | `GEMINI_API_KEY` | Google Gemini API key | Yes |
 | `TWITTER_API_KEY` | Twitter API key | For Twitter |
 | `TWITTER_API_SECRET` | Twitter API secret | For Twitter |
@@ -142,6 +143,7 @@ jobs:
       - run: python -m agent.main --post morning
         env:
           ALPHA_COPILOT_API_URL: ${{ secrets.ALPHA_COPILOT_API_URL }}
+          ALPHA_COPILOT_API_KEY: ${{ secrets.ALPHA_COPILOT_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
           TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}

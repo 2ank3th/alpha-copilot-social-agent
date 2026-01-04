@@ -19,6 +19,7 @@ class QueryAlphaCopilotTool(BaseTool):
 
     def __init__(self):
         self.api_url = Config.ALPHA_COPILOT_API_URL
+        self.api_key = Config.ALPHA_COPILOT_API_KEY
         self.timeout = 120.0  # LLM processing can take time
 
     def get_schema(self) -> Dict[str, Any]:
@@ -41,10 +42,19 @@ class QueryAlphaCopilotTool(BaseTool):
         """Execute query against Alpha Copilot API."""
         logger.info(f"Querying Alpha Copilot: {query}")
 
+        if not self.api_key:
+            return "ERROR: ALPHA_COPILOT_API_KEY not configured. Cannot query the API."
+
         try:
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
+
             with httpx.Client(timeout=self.timeout) as client:
                 response = client.post(
                     f"{self.api_url}/api/query",
+                    headers=headers,
                     json={
                         "query": query,
                         "session_id": f"social_agent_{uuid.uuid4().hex[:8]}"
