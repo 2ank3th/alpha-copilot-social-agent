@@ -124,18 +124,38 @@ Environment variables (`.env` file):
 - `TWITTER_*` - Twitter API credentials
 - `DRY_RUN` - Set to `true` to skip posting (default: true)
 
+## Content Guidelines
+
+### Tone: Suggestive, Not Certain
+
+Posts should use cautious language to avoid sounding like financial advice.
+
+**Use:** "Could", "Might", "Possible", "Potential", "Worth watching", "Interesting setup"
+
+**Avoid:** "Will", "Definitely", "Guaranteed", "Buy this", "You should"
+
+### Specificity
+
+Theses should include concrete details from research:
+- Numbers, dates, names, or events when available
+- Avoid generic phrases like "sector strength" or "analyst upgrades"
+
+### Variety
+
+Vary phrasing across posts - don't use the same structure every time.
+
 ## Post Format
 
-Posts now lead with thesis (the story):
+Posts lead with thesis and include `#NFA` disclaimer:
 
 ```
-Options Alert
+Trade Idea
 
-NVDA surging on new AI chip announcement.
+NVDA +5% ahead of earnings - could extend if results beat.
 
 $NVDA Call Option
 $145 | Exp: Jan 17
 Premium: $3.20 | POP: 45%
 
-#NVDA #options
+#NVDA #options #NFA
 ```

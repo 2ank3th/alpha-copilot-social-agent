@@ -31,7 +31,7 @@ class ComposePostTool(BaseTool):
                     },
                     "thesis": {
                         "type": "string",
-                        "description": "Investment thesis - the story/catalyst driving this trade (e.g., 'NVDA surging on new AI chip announcement')"
+                        "description": "Investment thesis with specific catalyst details. Use suggestive language (could, might, potential)."
                     },
                     "strike": {
                         "type": "string",
@@ -77,7 +77,8 @@ class ComposePostTool(BaseTool):
     ) -> str:
         """Compose a post for the target platform."""
 
-        header = "Options Alert"
+        # Use softer header - not "Alert" which sounds too certain
+        header = "Trade Idea"
 
         # Platform-specific formatting
         if platform == "twitter":
@@ -98,57 +99,52 @@ class ComposePostTool(BaseTool):
         strike: str, expiration: str, premium: str, pop: str, why_now: str
     ) -> str:
         """Format for Twitter (280 char limit)."""
-        # Build metrics line
-        metrics_parts = []
-        if strike:
-            metrics_parts.append(strike)
-        if expiration:
-            metrics_parts.append(f"Exp: {expiration}")
-        metrics_line = " | ".join(metrics_parts) if metrics_parts else ""
+        tweet_parts = []
 
-        stats_parts = []
-        if premium:
-            stats_parts.append(f"Premium: {premium}")
-        if pop:
-            stats_parts.append(f"POP: {pop}")
-        stats_line = " | ".join(stats_parts) if stats_parts else ""
-
-        # Build tweet with thesis at top
-        tweet_parts = [header, ""]
-
-        # Add thesis (the story)
+        # Lead with thesis (no header - more engaging)
         if thesis:
             tweet_parts.append(thesis)
             tweet_parts.append("")
 
+        # Symbol and strategy
         tweet_parts.append(f"${symbol} {strategy}")
 
-        if metrics_line:
-            tweet_parts.append(metrics_line)
-        if stats_line:
-            tweet_parts.append(stats_line)
+        # Compact metrics on one line
+        metrics = []
+        if strike:
+            metrics.append(strike)
+        if expiration:
+            metrics.append(f"{expiration} exp")
+        if metrics:
+            tweet_parts.append(" | ".join(metrics))
 
-        # Add symbol-specific hashtag
-        hashtags = f"#{symbol} #options"
+        # Stats on one line
+        stats = []
+        if premium:
+            stats.append(f"{premium} premium")
+        if pop:
+            stats.append(f"{pop} POP")
+        if stats:
+            tweet_parts.append(" | ".join(stats))
 
-        # Calculate remaining space
-        base = "\n".join(tweet_parts)
-        full = base + "\n" + hashtags
+        # Add "Why" context if provided
+        if why_now:
+            tweet_parts.append("")
+            tweet_parts.append(f"Why: {why_now[:80]}")
 
-        # Truncate thesis if needed to fit
-        if len(full) > 280 and thesis:
-            max_thesis_len = 280 - (len(full) - len(thesis)) - 3
+        # Hashtags
+        tweet_parts.append("")
+        hashtags = f"#{symbol} #options #NFA"
+        tweet_parts.append(hashtags)
+
+        composed = "\n".join(tweet_parts)
+
+        # Truncate thesis if too long
+        if len(composed) > 280 and thesis:
+            max_thesis_len = len(thesis) - (len(composed) - 280) - 3
             if max_thesis_len > 20:
                 thesis = thesis[:max_thesis_len] + "..."
-                # Rebuild tweet
-                tweet_parts = [header, "", thesis, "", f"${symbol} {strategy}"]
-                if metrics_line:
-                    tweet_parts.append(metrics_line)
-                if stats_line:
-                    tweet_parts.append(stats_line)
-
-        tweet_parts.append(hashtags)
-        composed = "\n".join(tweet_parts)
+                return self._format_twitter(header, symbol, strategy, thesis, strike, expiration, premium, pop, why_now)
 
         return f"COMPOSED_POST:\n{composed}\n\nCHARACTER_COUNT: {len(composed)}"
 
@@ -157,12 +153,9 @@ class ComposePostTool(BaseTool):
         strike: str, expiration: str, premium: str, pop: str, why_now: str
     ) -> str:
         """Format for Threads (500 char limit, more room for detail)."""
-        post_parts = [
-            f"{header}",
-            ""
-        ]
+        post_parts = []
 
-        # Add thesis at top (the story)
+        # Lead with thesis (no header)
         if thesis:
             post_parts.append(thesis)
             post_parts.append("")
@@ -173,18 +166,18 @@ class ComposePostTool(BaseTool):
         if strike:
             post_parts.append(f"Strike: {strike}")
         if expiration:
-            post_parts.append(f"Expiration: {expiration}")
+            post_parts.append(f"Exp: {expiration}")
         if premium:
             post_parts.append(f"Premium: {premium}")
         if pop:
-            post_parts.append(f"Probability of Profit: {pop}")
+            post_parts.append(f"POP: {pop}")
 
         if why_now:
             post_parts.append("")
-            post_parts.append(why_now[:200])
+            post_parts.append(f"Why: {why_now[:200]}")
 
         post_parts.append("")
-        post_parts.append(f"#{symbol} #options #trading")
+        post_parts.append(f"#{symbol} #options #NFA")
 
         composed = "\n".join(post_parts)
 

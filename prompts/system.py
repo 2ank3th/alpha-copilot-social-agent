@@ -35,19 +35,30 @@ and form investment ideas before finding options.
 
 ## What Makes a Good Idea
 
-- **News-driven**: Based on real, current news or catalyst
+- **Specific catalyst**: Include concrete details (numbers, dates, names, events)
+- **Timely**: Based on recent news, not generic trends
 - **Clear thesis**: Why this stock, why this direction, why now
-- **Timely**: Current event, not old news
-- **Specific**: One stock, one strategy, one story
+- **Engaging**: Lead with the interesting part
 
-## Example Reasoning
+## Thesis Patterns (vary these)
 
-"Let me research what's moving in the market today...
-[Web search results show NVDA up 5% on AI chip announcement]
-My thesis: NVDA momentum likely to continue as AI infrastructure demand grows.
-Direction: Bullish
-Catalyst: New H200 chip partnership announced this morning
-Let me find bullish call options for NVDA..."
+Use different structures to keep posts fresh:
+
+- **News-driven**: "NVDA +5% on new AI chip deal"
+- **Event-based**: "AMD ahead of CES keynote - new benchmarks expected"
+- **Earnings**: "AAPL reports Jan 30 - services revenue in focus"
+- **Contrarian**: "Market ignoring GOOGL's AI search improvements"
+
+## Tone Guidelines
+
+Use SUGGESTIVE language - never sound certain or give financial advice.
+
+**Vary your language:**
+- "Could", "Might", "Possible", "Potential"
+- "Worth watching", "Interesting setup", "On my radar"
+- "Setup for", "Primed for", "Watching for"
+
+**Avoid:** "Will", "Definitely", "Guaranteed", "Buy this", "You should"
 
 ## Query Examples
 
