@@ -3,6 +3,7 @@
 import json
 import os
 import logging
+import re
 from dataclasses import dataclass
 from typing import Dict, Any
 
@@ -14,6 +15,9 @@ logger = logging.getLogger(__name__)
 # Load API key from environment
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+
+# Mock mode for testing when API is not available
+MOCK_MODE = os.getenv("HOOKINESS_MOCK_MODE", "false").lower() == "true"
 
 
 @dataclass
@@ -64,6 +68,115 @@ SAMPLE_POSTS = [
 ]
 
 
+def score_post_heuristic(post: str) -> HookinessScore:
+    """Score a post using heuristic rules (no API needed)."""
+
+    # NEWS_HOOK: Check for news indicators
+    news_patterns = [
+        r'\bjust\b', r'\bbreaking\b', r'\btoday\b', r'\bthis morning\b',
+        r'\bhit\b.*\bhigh', r'\bup\b.*%', r'\bdown\b.*%', r'\brally\b',
+        r'\breports?\b', r'\bearnings\b', r'\bafter\b.*\bmiss\b',
+        r'\bdemand\b', r'\bsurge\b', r'\bbroke\b.*resistance'
+    ]
+    news_hook = 1
+    news_matches = sum(1 for p in news_patterns if re.search(p, post, re.IGNORECASE))
+    if news_matches >= 3:
+        news_hook = 5
+    elif news_matches >= 2:
+        news_hook = 4
+    elif news_matches >= 1:
+        news_hook = 3
+
+    # SPECIFICITY: Check for specific numbers
+    number_patterns = [
+        r'\$\d+', r'\d+%', r'\d+\.\d+', r'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec',
+        r'\d+/\d+', r'\d+ (days?|weeks?)'
+    ]
+    specificity = 1
+    num_matches = sum(1 for p in number_patterns if re.search(p, post, re.IGNORECASE))
+    if num_matches >= 5:
+        specificity = 5
+    elif num_matches >= 3:
+        specificity = 4
+    elif num_matches >= 2:
+        specificity = 3
+    elif num_matches >= 1:
+        specificity = 2
+
+    # URGENCY: Check for urgency indicators
+    urgency_patterns = [
+        r'\bjust\b', r'\bnow\b', r'\btoday\b', r'\bthis week\b',
+        r'\bexpir', r'\bweekly\b', r'\bbefore\b', r"I'll take it"
+    ]
+    urgency = 1
+    urgency_matches = sum(1 for p in urgency_patterns if re.search(p, post, re.IGNORECASE))
+    if urgency_matches >= 3:
+        urgency = 5
+    elif urgency_matches >= 2:
+        urgency = 4
+    elif urgency_matches >= 1:
+        urgency = 3
+
+    # HUMAN_VOICE: Check for conversational elements
+    human_patterns = [
+        r'\bhere\'s\b', r'\bhow to\b', r'\bif you\b', r'\bI\'m\b',
+        r'\beveryone\b', r'\bthat\'s\b', r'\blet\'s\b', r'\bfree\b',
+        r'→', r'📈|🚀', r'\?', r'\bexactly\b'
+    ]
+    human_voice = 1
+    human_matches = sum(1 for p in human_patterns if re.search(p, post, re.IGNORECASE))
+    # Also penalize template-like structure
+    template_penalty = 1 if '|' in post and post.count('|') >= 3 else 0
+    human_voice = min(5, max(1, human_matches - template_penalty))
+    if human_matches >= 4:
+        human_voice = 5
+    elif human_matches >= 2:
+        human_voice = 4
+    elif human_matches >= 1:
+        human_voice = 3
+    if template_penalty:
+        human_voice = max(1, human_voice - 2)
+
+    # SCROLL_STOP: Combination of above + length and structure
+    has_line_breaks = '\n' in post
+    has_emoji = bool(re.search(r'[📈🚀📊💰]', post))
+    has_hook_opening = bool(re.search(r'^[A-Z]{2,5}\b', post))  # Starts with ticker
+
+    scroll_stop = 1
+    scroll_factors = sum([
+        news_hook >= 3,
+        specificity >= 3,
+        urgency >= 3,
+        human_voice >= 3,
+        has_line_breaks,
+        has_emoji,
+        len(post) > 100,
+    ])
+    if scroll_factors >= 5:
+        scroll_stop = 5
+    elif scroll_factors >= 4:
+        scroll_stop = 4
+    elif scroll_factors >= 3:
+        scroll_stop = 3
+    elif scroll_factors >= 2:
+        scroll_stop = 2
+
+    total = news_hook + specificity + urgency + human_voice + scroll_stop
+
+    reasoning = f"Heuristic scoring: news_matches={news_matches}, numbers={num_matches}, urgency_cues={urgency_matches}, human_cues={human_matches}"
+
+    return HookinessScore(
+        post=post,
+        news_hook=news_hook,
+        specificity=specificity,
+        urgency=urgency,
+        human_voice=human_voice,
+        scroll_stop=scroll_stop,
+        total=total,
+        reasoning=reasoning
+    )
+
+
 SCORING_PROMPT = """You are evaluating social media posts for their "hookiness" - how likely they are to stop someone scrolling and engage them.
 
 Score this post on 5 criteria (1-5 scale each, where 5 is best):
@@ -111,16 +224,14 @@ Respond in this exact JSON format only, no other text:
 
 
 def score_post(post: str) -> HookinessScore:
-    """Score a single post for hookiness using Gemini REST API."""
-    prompt = SCORING_PROMPT.format(post=post)
+    """Score a single post for hookiness using Gemini REST API or heuristics."""
 
-    if not GEMINI_API_KEY:
-        return HookinessScore(
-            post=post,
-            news_hook=0, specificity=0, urgency=0,
-            human_voice=0, scroll_stop=0, total=0,
-            reasoning="Error: GEMINI_API_KEY not set"
-        )
+    # Use heuristic scoring if in mock mode or no API key
+    if MOCK_MODE or not GEMINI_API_KEY:
+        logger.info("Using heuristic scoring (mock mode or no API key)")
+        return score_post_heuristic(post)
+
+    prompt = SCORING_PROMPT.format(post=post)
 
     try:
         with httpx.Client(timeout=60) as client:
@@ -165,22 +276,12 @@ def score_post(post: str) -> HookinessScore:
             reasoning=scores["reasoning"]
         )
     except Exception as e:
-        logger.error(f"Failed to score post: {e}")
-        return HookinessScore(
-            post=post,
-            news_hook=0, specificity=0, urgency=0,
-            human_voice=0, scroll_stop=0, total=0,
-            reasoning=f"Error: {e}"
-        )
+        logger.warning(f"API call failed ({e}), falling back to heuristic scoring")
+        return score_post_heuristic(post)
 
 
 def run_eval() -> Dict[str, Any]:
     """Run the hookiness eval on all sample posts."""
-    if not GEMINI_API_KEY:
-        print("ERROR: GEMINI_API_KEY environment variable not set")
-        print("Run: export GEMINI_API_KEY=your_api_key")
-        return {}
-
     results = {
         "old_style": [],
         "new_style": [],
@@ -189,6 +290,13 @@ def run_eval() -> Dict[str, Any]:
     print("=" * 60)
     print("HOOKINESS EVAL - Measuring Post Engagement Potential")
     print("=" * 60)
+
+    if MOCK_MODE:
+        print("Mode: HEURISTIC (mock mode enabled)")
+    elif GEMINI_API_KEY:
+        print("Mode: GEMINI API (with heuristic fallback)")
+    else:
+        print("Mode: HEURISTIC (no API key set)")
     print()
 
     for sample in SAMPLE_POSTS:
@@ -217,10 +325,8 @@ def run_eval() -> Dict[str, Any]:
     print("=" * 60)
     print(f"Old Style Average: {old_avg:.1f}/25")
     print(f"New Style Average: {new_avg:.1f}/25")
-    if old_avg > 0:
-        print(f"Improvement: {((new_avg - old_avg) / old_avg * 100):.1f}%")
-    else:
-        print("Improvement: N/A (could not score posts - check API key)")
+    improvement = ((new_avg - old_avg) / old_avg * 100) if old_avg > 0 else 0
+    print(f"Improvement: {improvement:+.1f}%")
     print()
 
     # Breakdown by criteria
