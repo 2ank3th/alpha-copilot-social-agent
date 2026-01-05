@@ -1,16 +1,19 @@
 """Eval to measure the hookiness/engagement potential of generated posts."""
 
 import json
+import os
 import logging
 from dataclasses import dataclass
-from typing import List, Dict, Any
+from typing import Dict, Any
 
-import google.generativeai as genai
-
-from agent.config import Config
+import httpx
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Load API key from environment
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 
 @dataclass
@@ -95,7 +98,7 @@ POST TO EVALUATE:
 {post}
 \"\"\"
 
-Respond in this exact JSON format:
+Respond in this exact JSON format only, no other text:
 {{
     "news_hook": <1-5>,
     "specificity": <1-5>,
@@ -107,13 +110,35 @@ Respond in this exact JSON format:
 """
 
 
-def score_post(post: str, model: genai.GenerativeModel) -> HookinessScore:
-    """Score a single post for hookiness using Gemini."""
+def score_post(post: str) -> HookinessScore:
+    """Score a single post for hookiness using Gemini REST API."""
     prompt = SCORING_PROMPT.format(post=post)
 
+    if not GEMINI_API_KEY:
+        return HookinessScore(
+            post=post,
+            news_hook=0, specificity=0, urgency=0,
+            human_voice=0, scroll_stop=0, total=0,
+            reasoning="Error: GEMINI_API_KEY not set"
+        )
+
     try:
-        response = model.generate_content(prompt)
-        text = response.text.strip()
+        with httpx.Client(timeout=60) as client:
+            response = client.post(
+                f"{GEMINI_API_URL}?key={GEMINI_API_KEY}",
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "temperature": 0.1,
+                        "maxOutputTokens": 500,
+                    }
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        # Extract text from response
+        text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
         # Parse JSON from response
         if "```json" in text:
@@ -121,7 +146,7 @@ def score_post(post: str, model: genai.GenerativeModel) -> HookinessScore:
         elif "```" in text:
             text = text.split("```")[1].split("```")[0]
 
-        scores = json.loads(text)
+        scores = json.loads(text.strip())
 
         return HookinessScore(
             post=post,
@@ -151,8 +176,10 @@ def score_post(post: str, model: genai.GenerativeModel) -> HookinessScore:
 
 def run_eval() -> Dict[str, Any]:
     """Run the hookiness eval on all sample posts."""
-    genai.configure(api_key=Config.GEMINI_API_KEY)
-    model = genai.GenerativeModel(model_name=Config.LLM_MODEL)
+    if not GEMINI_API_KEY:
+        print("ERROR: GEMINI_API_KEY environment variable not set")
+        print("Run: export GEMINI_API_KEY=your_api_key")
+        return {}
 
     results = {
         "old_style": [],
@@ -169,7 +196,7 @@ def run_eval() -> Dict[str, Any]:
         post = sample["post"]
 
         print(f"Scoring {post_type} post...")
-        score = score_post(post, model)
+        score = score_post(post)
         results[post_type].append(score)
 
         print(f"  Total: {score.total}/25")
@@ -190,7 +217,10 @@ def run_eval() -> Dict[str, Any]:
     print("=" * 60)
     print(f"Old Style Average: {old_avg:.1f}/25")
     print(f"New Style Average: {new_avg:.1f}/25")
-    print(f"Improvement: {((new_avg - old_avg) / old_avg * 100):.1f}%")
+    if old_avg > 0:
+        print(f"Improvement: {((new_avg - old_avg) / old_avg * 100):.1f}%")
+    else:
+        print("Improvement: N/A (could not score posts - check API key)")
     print()
 
     # Breakdown by criteria
@@ -205,7 +235,7 @@ def run_eval() -> Dict[str, Any]:
     return {
         "old_style_avg": old_avg,
         "new_style_avg": new_avg,
-        "improvement_pct": (new_avg - old_avg) / old_avg * 100,
+        "improvement_pct": ((new_avg - old_avg) / old_avg * 100) if old_avg > 0 else 0,
         "results": results,
     }
 
