@@ -113,7 +113,7 @@ def create_agent() -> AgentLoop:
     """Create and configure the agent with all tools."""
     from tools.alpha_copilot import QueryAlphaCopilotTool
     from tools.compose import ComposePostTool
-    from tools.market_context import GetMarketContextTool
+    from tools.market_news import GetMarketNewsTool
     from tools.publish import (
         PublishTool,
         CheckRecentPostsTool,
@@ -127,7 +127,7 @@ def create_agent() -> AgentLoop:
 
     # Initialize tool registry
     tools = ToolRegistry()
-    tools.register(GetMarketContextTool())  # Get context FIRST
+    tools.register(GetMarketNewsTool())  # Get LIVE news via Google Search
     tools.register(QueryAlphaCopilotTool())
     tools.register(ComposePostTool())
     tools.register(PublishTool())
