@@ -1,9 +1,12 @@
 """Configuration for the Alpha Copilot Social Agent."""
 
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
+# Load .env first, then .env.local overrides
 load_dotenv()
+load_dotenv(".env.local", override=True)
 
 
 class Config:
