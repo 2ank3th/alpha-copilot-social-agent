@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 import httpx
 
@@ -31,7 +31,7 @@ class ThreadsPlatform(BasePlatform):
         """Check if Threads credentials are configured."""
         return bool(self._access_token and self._user_id)
 
-    def _create_container(self, content: str) -> str | None:
+    def _create_container(self, content: str) -> Optional[str]:
         """
         Create a media container for the Threads post.
 

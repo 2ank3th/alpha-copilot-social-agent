@@ -16,10 +16,17 @@ class Config:
     )
     ALPHA_COPILOT_API_KEY: str = os.getenv("ALPHA_COPILOT_API_KEY", "")
 
+    # Supabase Authentication (same flow as frontend)
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+    SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
+    SUPABASE_EMAIL: str = os.getenv("SUPABASE_EMAIL", "")
+    SUPABASE_PASSWORD: str = os.getenv("SUPABASE_PASSWORD", "")
+
     # LLM Configuration
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-2.0-flash")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-3-flash-preview")
     LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "60"))
+    ENABLE_GROUNDING: bool = os.getenv("ENABLE_GROUNDING", "true").lower() == "true"
 
     # Twitter/X Credentials
     TWITTER_API_KEY: str = os.getenv("TWITTER_API_KEY", "")
@@ -43,6 +50,12 @@ class Config:
     MAX_ITERATIONS: int = int(os.getenv("MAX_ITERATIONS", "10"))
     DRY_RUN: bool = os.getenv("DRY_RUN", "true").lower() == "true"
 
+    # Evaluation Thresholds
+    EVAL_HOOKINESS_MIN: int = int(os.getenv("EVAL_HOOKINESS_MIN", "15"))  # 15/25 = 60%
+    EVAL_QUALITY_MIN: int = int(os.getenv("EVAL_QUALITY_MIN", "30"))      # 30/50 = 60%
+    EVAL_TOTAL_MIN: int = int(os.getenv("EVAL_TOTAL_MIN", "45"))          # 45/75 = 60%
+    EVAL_MODE: str = os.getenv("EVAL_MODE", "both")  # hookiness|quality|both
+
     @classmethod
     def validate_llm(cls) -> bool:
         """Check if LLM configuration is valid."""
@@ -51,7 +64,18 @@ class Config:
     @classmethod
     def validate_alpha_copilot(cls) -> bool:
         """Check if Alpha Copilot API credentials are configured."""
-        return bool(cls.ALPHA_COPILOT_API_KEY)
+        # Check for either static API key or Supabase auth
+        return bool(cls.ALPHA_COPILOT_API_KEY) or cls.validate_supabase()
+
+    @classmethod
+    def validate_supabase(cls) -> bool:
+        """Check if Supabase credentials are configured."""
+        return all([
+            cls.SUPABASE_URL,
+            cls.SUPABASE_ANON_KEY,
+            cls.SUPABASE_EMAIL,
+            cls.SUPABASE_PASSWORD,
+        ])
 
     @classmethod
     def validate_twitter(cls) -> bool:

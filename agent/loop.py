@@ -5,10 +5,16 @@ from typing import Optional
 
 from .llm import LLMClient, LLMResponse
 from .config import Config
+from .eval import PostEvaluator
 from tools.registry import ToolRegistry
 from prompts.system import SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
+
+
+class EvaluationFailedError(Exception):
+    """Raised when post fails quality evaluation."""
+    pass
 
 
 class AgentLoop:
@@ -23,10 +29,12 @@ class AgentLoop:
     5. Repeat until done or max iterations
     """
 
-    def __init__(self, llm: LLMClient, tools: ToolRegistry):
+    def __init__(self, llm: LLMClient, tools: ToolRegistry, evaluator: PostEvaluator = None):
         self.llm = llm
         self.tools = tools
+        self.evaluator = evaluator or PostEvaluator()
         self.max_iterations = Config.MAX_ITERATIONS
+        self._pending_post = None  # Track post awaiting evaluation
 
     def run(self, task: str) -> str:
         """
@@ -76,7 +84,31 @@ class AgentLoop:
 
                     try:
                         result = self.tools.execute(tool_name, **tool_args)
+
+                        # NEW: Evaluation gate for write_post
+                        if tool_name == "write_post" and "POST_READY" in result:
+                            post_text = self._extract_post_text(result)
+                            if post_text:
+                                # Store post BEFORE evaluation so it's accessible even if eval fails
+                                self._pending_post = post_text
+
+                                eval_result = self._evaluate_post(post_text)
+                                if not eval_result.passed:
+                                    # Evaluation failed - abort
+                                    raise EvaluationFailedError(
+                                        f"Post quality check failed: {eval_result.failure_reason}\n\n"
+                                        f"Score: {eval_result.total}/75 (min {Config.EVAL_TOTAL_MIN})\n"
+                                        f"Hookiness: {eval_result.hookiness.total}/25\n"
+                                        f"Quality: {eval_result.quality.total}/50\n\n"
+                                        "Post was NOT published. Please try a different approach."
+                                    )
+                                result = result + f"\n\nEVAL_PASSED: Score {eval_result.total}/75"
+
                         logger.info(f"Tool result: {result[:200]}...")
+                    except EvaluationFailedError as e:
+                        # Evaluation failure - surface to user, don't retry
+                        logger.error(f"Evaluation failed: {e}")
+                        return f"EVAL_FAILED: {str(e)}"
                     except Exception as e:
                         result = f"TOOL_ERROR: {str(e)}"
                         logger.error(f"Tool execution failed: {e}")
@@ -108,11 +140,37 @@ class AgentLoop:
         logger.warning("Max iterations reached without completion")
         return "MAX_ITERATIONS_REACHED: The agent did not complete the task within the allowed iterations."
 
+    def _extract_post_text(self, tool_result: str) -> Optional[str]:
+        """Extract post text from write_post tool result."""
+        if "POST TEXT:" not in tool_result:
+            return None
+
+        parts = tool_result.split("POST TEXT:")
+        if len(parts) < 2:
+            return None
+
+        # Extract text between "POST TEXT:" and any warnings/suggestions
+        post_section = parts[1]
+        if "SUGGESTIONS:" in post_section:
+            post_section = post_section.split("SUGGESTIONS:")[0]
+
+        return post_section.strip()
+
+    def _evaluate_post(self, post_text: str):
+        """Evaluate post and log results."""
+        score = self.evaluator.evaluate(post_text)
+
+        # Log full report
+        report = self.evaluator.format_report(score)
+        logger.info(f"\n{report}")
+
+        return score
+
 
 def create_agent() -> AgentLoop:
     """Create and configure the agent with all tools."""
     from tools.alpha_copilot import QueryAlphaCopilotTool
-    from tools.compose import ComposePostTool
+    from tools.write import WritePostTool
     from tools.market_news import GetMarketNewsTool
     from tools.publish import (
         PublishTool,
@@ -129,11 +187,14 @@ def create_agent() -> AgentLoop:
     tools = ToolRegistry()
     tools.register(GetMarketNewsTool())  # Get LIVE news via Google Search
     tools.register(QueryAlphaCopilotTool())
-    tools.register(ComposePostTool())
+    tools.register(WritePostTool())  # LLM writes complete post text
     tools.register(PublishTool())
     tools.register(CrossPostTool())  # Cross-post to Twitter + Threads
     tools.register(CheckRecentPostsTool())
     tools.register(GetPlatformStatusTool())
     tools.register(DoneTool())
 
-    return AgentLoop(llm, tools)
+    # Initialize evaluator
+    evaluator = PostEvaluator()
+
+    return AgentLoop(llm, tools, evaluator)
