@@ -1,289 +1,348 @@
-"""Evaluation layer for scoring agent output quality."""
+"""Unified evaluation system for post quality."""
 
-import json
-import logging
 import re
-from typing import Dict, List, Any, Optional
+import logging
+from dataclasses import dataclass
+from typing import Tuple
 
-from google import genai
-from google.genai import types
-
-from .config import Config
-from .loop import create_agent
-from prompts.system import get_task_prompt
+from agent.config import Config
 
 logger = logging.getLogger(__name__)
 
 
-class AgentEvaluator:
-    """Evaluates agent output quality over multiple runs.
+@dataclass
+class HookinessScore:
+    """Hookiness scores for engagement potential."""
+    post: str
+    news_hook: int  # 1-5: Does it lead with news/timely info?
+    specificity: int  # 1-5: Does it have specific numbers (%, $, dates)?
+    urgency: int  # 1-5: Does it create FOMO/urgency?
+    human_voice: int  # 1-5: Does it sound human vs robotic?
+    scroll_stop: int  # 1-5: Would this stop someone scrolling?
+    total: int  # Sum of all scores (max 25)
+    reasoning: str  # Why the scores were given
 
-    Uses google-genai package for LLM judge.
-    Raises exceptions on failure - no silent fallbacks.
-    """
+
+@dataclass
+class QualityScore:
+    """Content quality scores (thesis-driven analysis)."""
+    thesis_clarity: int  # 1-10: Clear investment thesis?
+    news_driven: int  # 1-10: Tied to news/events?
+    actionable: int  # 1-10: Specific trade details?
+    engagement: int  # 1-10: Compelling/interesting?
+    originality: int  # 1-10: Fresh angle vs generic?
+    total: int  # Sum (max 50)
+    reasoning: str
+
+
+@dataclass
+class UnifiedScore:
+    """Combined hookiness + quality evaluation."""
+    hookiness: HookinessScore
+    quality: QualityScore
+    total: int  # hookiness.total + quality.total (max 75)
+    passed: bool
+    failure_reason: str = ""
+
+
+class PostEvaluator:
+    """Evaluates post quality using hookiness + content quality metrics."""
 
     def __init__(self):
-        if not Config.GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY not configured")
+        self.hookiness_min = Config.EVAL_HOOKINESS_MIN
+        self.quality_min = Config.EVAL_QUALITY_MIN
+        self.total_min = Config.EVAL_TOTAL_MIN
+        self.eval_mode = Config.EVAL_MODE
 
-        self.client = genai.Client(api_key=Config.GEMINI_API_KEY)
-
-    def run_eval(self, platform: str = "twitter", num_runs: int = 5) -> Dict[str, Any]:
+    def evaluate(self, post_text: str) -> UnifiedScore:
         """
-        Run agent multiple times and score outputs.
+        Evaluate a post using both hookiness and quality metrics.
 
         Args:
-            platform: Target platform for posts
-            num_runs: Number of evaluation runs
+            post_text: The complete post text
 
         Returns:
-            Evaluation report with scores
+            UnifiedScore with pass/fail and detailed breakdown
         """
-        results = []
-        task = get_task_prompt(platform)
+        # 1. Score hookiness (engagement metrics)
+        hookiness = self._score_hookiness_heuristic(post_text)
 
-        print(f"\n{'='*50}")
-        print("AGENT EVALUATION")
-        print(f"{'='*50}")
-        print(f"Runs: {num_runs}")
-        print(f"Platform: {platform}")
-        print(f"{'='*50}\n")
+        # 2. Score quality (content metrics)
+        quality = self._score_quality_heuristic(post_text)
 
-        for i in range(num_runs):
-            print(f"Run {i+1}/{num_runs}...")
+        # 3. Determine pass/fail
+        total = hookiness.total + quality.total
+        passed, reason = self._check_thresholds(hookiness.total, quality.total, total)
 
-            try:
-                # Force dry run for evaluation
-                original_dry_run = Config.DRY_RUN
-                Config.DRY_RUN = True
+        return UnifiedScore(
+            hookiness=hookiness,
+            quality=quality,
+            total=total,
+            passed=passed,
+            failure_reason=reason
+        )
 
-                agent = create_agent()
-                result = agent.run(task)
+    def _score_hookiness_heuristic(self, post: str) -> HookinessScore:
+        """Score post hookiness using heuristic rules."""
 
-                Config.DRY_RUN = original_dry_run
-
-                # Parse result - try to extract from full agent run output
-                # Note: We need to capture the tweet from compose_post tool output
-                tweet = self._extract_tweet(result)
-                thesis = self._extract_thesis(result)
-                symbol = self._extract_symbol(result)
-
-                # If no tweet found in result, check if publish was called
-                if not tweet and "DRY_RUN:" in result:
-                    # Extract from dry run output
-                    import re
-                    match = re.search(r'DRY_RUN:.*?Content:\s*(.*?)(?:\.\.\.|$)', result, re.DOTALL)
-                    if match:
-                        tweet = match.group(1).strip()
-
-                results.append({
-                    "run": i + 1,
-                    "raw_result": result,
-                    "tweet": tweet,
-                    "thesis": thesis,
-                    "symbol": symbol,
-                    "success": "TASK_COMPLETE" in result or "SUCCESS" in result
-                })
-
-                if tweet:
-                    print(f"  Tweet: {tweet[:60]}...")
-                else:
-                    print(f"  No tweet composed (result: {result[:50]}...)")
-
-            except Exception as e:
-                logger.exception(f"Run {i+1} failed")
-                results.append({
-                    "run": i + 1,
-                    "error": str(e),
-                    "tweet": None,
-                    "thesis": None,
-                    "symbol": None,
-                    "success": False
-                })
-                print(f"  Error: {e}")
-
-        # Filter successful runs with tweets
-        tweets_to_judge = [r for r in results if r.get("tweet")]
-
-        if not tweets_to_judge:
-            print("\nNo tweets to evaluate.")
-            return {
-                "num_runs": num_runs,
-                "successful_runs": 0,
-                "average_score": 0,
-                "max_score": 50,
-                "results": results,
-                "scores": []
-            }
-
-        # Judge quality
-        print(f"\nScoring {len(tweets_to_judge)} tweets...")
-        scores = self._judge_tweets(tweets_to_judge)
-
-        # Generate report
-        return self._generate_report(results, scores)
-
-    def _extract_tweet(self, result: str) -> Optional[str]:
-        """Extract composed tweet from result."""
-        # Look for COMPOSED_POST block
-        match = re.search(r'COMPOSED_POST:\n(.*?)\n\nCHARACTER_COUNT', result, re.DOTALL)
-        if match:
-            return match.group(1).strip()
-
-        # Look in context
-        match = re.search(r'COMPOSED_POST:\n(.*?)(?:\n\n|$)', result, re.DOTALL)
-        if match:
-            return match.group(1).strip()
-
-        return None
-
-    def _extract_thesis(self, result: str) -> Optional[str]:
-        """Extract thesis from result."""
-        # Look for thesis patterns
-        patterns = [
-            r'thesis["\s:]+([^"]+)"',
-            r'My thesis:\s*([^\n]+)',
-            r'Thesis:\s*([^\n]+)',
+        # NEWS_HOOK: Check for news indicators
+        news_patterns = [
+            r'\bjust\b', r'\bbreaking\b', r'\btoday\b', r'\bthis morning\b',
+            r'\bhit\b.*\bhigh', r'\bup\b.*%', r'\bdown\b.*%', r'\brally\b',
+            r'\breports?\b', r'\bearnings\b', r'\bafter\b.*\bmiss\b',
+            r'\bdemand\b', r'\bsurge\b', r'\bbroke\b.*resistance'
         ]
-        for pattern in patterns:
-            match = re.search(pattern, result, re.IGNORECASE)
-            if match:
-                return match.group(1).strip()
-        return None
+        news_hook = 1
+        news_matches = sum(1 for p in news_patterns if re.search(p, post, re.IGNORECASE))
+        if news_matches >= 3:
+            news_hook = 5
+        elif news_matches >= 2:
+            news_hook = 4
+        elif news_matches >= 1:
+            news_hook = 3
 
-    def _extract_symbol(self, result: str) -> Optional[str]:
-        """Extract stock symbol from result."""
-        match = re.search(r'\$([A-Z]{1,5})\b', result)
-        if match:
-            return match.group(1)
-        return None
+        # SPECIFICITY: Check for specific numbers
+        number_patterns = [
+            r'\$\d+', r'\d+%', r'\d+\.\d+', r'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec',
+            r'\d+/\d+', r'\d+ (days?|weeks?)'
+        ]
+        specificity = 1
+        num_matches = sum(1 for p in number_patterns if re.search(p, post, re.IGNORECASE))
+        if num_matches >= 5:
+            specificity = 5
+        elif num_matches >= 3:
+            specificity = 4
+        elif num_matches >= 2:
+            specificity = 3
+        elif num_matches >= 1:
+            specificity = 2
 
-    def _judge_tweets(self, results: List[Dict]) -> List[Dict]:
-        """Use LLM to score tweet quality."""
-        tweets_json = json.dumps([
-            {"run": r["run"], "tweet": r["tweet"], "thesis": r.get("thesis", "")}
-            for r in results
-        ], indent=2)
+        # URGENCY: Check for urgency indicators
+        urgency_patterns = [
+            r'\bjust\b', r'\bnow\b', r'\btoday\b', r'\bthis week\b',
+            r'\bexpir', r'\bweekly\b', r'\bbefore\b', r"I'll take it"
+        ]
+        urgency = 1
+        urgency_matches = sum(1 for p in urgency_patterns if re.search(p, post, re.IGNORECASE))
+        if urgency_matches >= 3:
+            urgency = 5
+        elif urgency_matches >= 2:
+            urgency = 4
+        elif urgency_matches >= 1:
+            urgency = 3
 
-        prompt = f"""You are a trading content quality judge. Score each tweet on these criteria (1-10 each):
+        # HUMAN_VOICE: Check for conversational elements
+        human_patterns = [
+            r'\bhere\'s\b', r'\bhow to\b', r'\bif you\b', r'\bI\'m\b',
+            r'\beveryone\b', r'\bthat\'s\b', r'\blet\'s\b', r'\bfree\b',
+            r'→', r'📈|🚀', r'\?', r'\bexactly\b'
+        ]
+        human_voice = 1
+        human_matches = sum(1 for p in human_patterns if re.search(p, post, re.IGNORECASE))
+        # Also penalize template-like structure
+        template_penalty = 1 if '|' in post and post.count('|') >= 3 else 0
+        human_voice = min(5, max(1, human_matches - template_penalty))
+        if human_matches >= 4:
+            human_voice = 5
+        elif human_matches >= 2:
+            human_voice = 4
+        elif human_matches >= 1:
+            human_voice = 3
+        if template_penalty:
+            human_voice = max(1, human_voice - 2)
 
-1. **Thesis Clarity**: Is the investment thesis clear and specific? Does it explain WHY this trade?
-2. **News-Driven**: Is it based on real, current news or a specific catalyst? (not generic)
-3. **Actionable**: Are the trade details clear? (symbol, strategy, strike, expiration)
-4. **Engagement**: Would this get engagement on Twitter? Is it compelling?
-5. **Originality**: Is this a unique take, not generic filler content?
+        # SCROLL_STOP: Combination of above + length and structure
+        has_line_breaks = '\n' in post
+        has_emoji = bool(re.search(r'[📈🚀📊💰]', post))
 
-Tweets to evaluate:
-{tweets_json}
+        scroll_stop = 1
+        scroll_factors = sum([
+            news_hook >= 3,
+            specificity >= 3,
+            urgency >= 3,
+            human_voice >= 3,
+            has_line_breaks,
+            has_emoji,
+            len(post) > 100,
+        ])
+        if scroll_factors >= 5:
+            scroll_stop = 5
+        elif scroll_factors >= 4:
+            scroll_stop = 4
+        elif scroll_factors >= 3:
+            scroll_stop = 3
+        elif scroll_factors >= 2:
+            scroll_stop = 2
 
-Return ONLY a JSON array with this exact format (no markdown, no explanation):
-[
-  {{"run": 1, "clarity": 8, "news": 7, "actionable": 9, "engagement": 6, "originality": 7, "total": 37, "feedback": "Brief feedback here"}},
-  ...
-]"""
+        total = news_hook + specificity + urgency + human_voice + scroll_stop
 
-        try:
-            config = types.GenerateContentConfig(
-                temperature=0.3,
-                max_output_tokens=1024,
-            )
+        reasoning = f"Heuristic scoring: news_matches={news_matches}, numbers={num_matches}, urgency_cues={urgency_matches}, human_cues={human_matches}"
 
-            response = self.client.models.generate_content(
-                model=Config.LLM_MODEL,
-                contents=prompt,
-                config=config,
-            )
+        return HookinessScore(
+            post=post,
+            news_hook=news_hook,
+            specificity=specificity,
+            urgency=urgency,
+            human_voice=human_voice,
+            scroll_stop=scroll_stop,
+            total=total,
+            reasoning=reasoning
+        )
 
-            # Parse JSON from response
-            text = response.text.strip()
+    def _score_quality_heuristic(self, post: str) -> QualityScore:
+        """Score post quality using heuristic rules."""
 
-            # Remove markdown code blocks if present
-            if text.startswith("```"):
-                text = re.sub(r'^```(?:json)?\n?', '', text)
-                text = re.sub(r'\n?```$', '', text)
+        # THESIS_CLARITY: Check for clear directional view
+        thesis_indicators = [
+            r'\b(bullish|bearish|neutral)\b',
+            r'\b(buy|sell|hold)\b',
+            r'\b(up|down|higher|lower)\b',
+            r'\b(rally|drop|surge|decline)\b'
+        ]
+        thesis_clarity = self._pattern_score(post, thesis_indicators, scale=10)
 
-            scores = json.loads(text)
-            return scores
+        # NEWS_DRIVEN: Check for news/event references
+        news_indicators = [
+            r'\bjust\b', r'\btoday\b', r'\breport(s|ed)?\b',
+            r'\bearnings\b', r'\bbeat\b', r'\bmiss\b',
+            r'\bannounced?\b', r'\d+%', r'all-time high'
+        ]
+        news_driven = self._pattern_score(post, news_indicators, scale=10)
 
-        except Exception as e:
-            logger.exception("Failed to judge tweets")
-            # Return default scores
-            return [
-                {"run": r["run"], "clarity": 5, "news": 5, "actionable": 5,
-                 "engagement": 5, "originality": 5, "total": 25,
-                 "feedback": f"Scoring failed: {e}"}
-                for r in results
-            ]
+        # ACTIONABLE: Check for specific trade details
+        has_strike = bool(re.search(r'\$\d+', post))
+        has_date = bool(re.search(r'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec', post))
+        has_premium = bool(re.search(r'premium|credit|collect', post, re.I))
+        has_pop = bool(re.search(r'\d+%.*prob', post, re.I))
 
-    def _generate_report(self, results: List[Dict], scores: List[Dict]) -> Dict[str, Any]:
-        """Generate evaluation report."""
-        successful = len([r for r in results if r.get("success")])
+        actionable = sum([has_strike * 3, has_date * 3, has_premium * 2, has_pop * 2])
+        actionable = min(10, actionable)
 
-        if not scores:
-            avg_score = 0
-            best = worst = None
+        # ENGAGEMENT: Similar to hookiness scroll_stop
+        # Use scroll_stop as base and scale
+        scroll_stop_score = self._get_scroll_stop_estimate(post)
+        engagement = min(10, scroll_stop_score * 2)  # Scale from 5 to 10
+
+        # ORIGINALITY: Penalty for templates, reward for unique phrasing
+        has_template = '|' in post and post.count('|') >= 3
+        has_emoji = bool(re.search(r'[📈🚀📊💰→]', post))
+        has_question = '?' in post
+        has_story = any(w in post.lower() for w in ['here\'s', 'everyone', 'that\'s'])
+
+        originality = 5  # baseline
+        if has_template:
+            originality -= 3
+        if has_emoji:
+            originality += 2
+        if has_question or has_story:
+            originality += 2
+        originality = max(1, min(10, originality))
+
+        total = thesis_clarity + news_driven + actionable + engagement + originality
+
+        return QualityScore(
+            thesis_clarity=thesis_clarity,
+            news_driven=news_driven,
+            actionable=actionable,
+            engagement=engagement,
+            originality=originality,
+            total=total,
+            reasoning=f"Quality heuristic: thesis={thesis_clarity}, news={news_driven}, actionable={actionable}"
+        )
+
+    def _pattern_score(self, text: str, patterns: list, scale: int = 10) -> int:
+        """Score based on pattern matches."""
+        matches = sum(1 for p in patterns if re.search(p, text, re.I))
+        # Scale linearly: 0 matches=1, max matches=scale
+        if not matches:
+            return 1
+        max_expected = len(patterns) // 2  # Expect ~half
+        score = 1 + min(matches, max_expected) * (scale - 1) // max_expected
+        return min(scale, score)
+
+    def _get_scroll_stop_estimate(self, post: str) -> int:
+        """Estimate scroll-stop score (1-5) for quality scoring."""
+        has_line_breaks = '\n' in post
+        has_emoji = bool(re.search(r'[📈🚀📊💰]', post))
+        has_news = bool(re.search(r'\bjust\b|\btoday\b|\breport', post, re.I))
+        has_numbers = bool(re.search(r'\d+%|\$\d+', post))
+
+        scroll_factors = sum([
+            has_news,
+            has_numbers,
+            has_line_breaks,
+            has_emoji,
+            len(post) > 100,
+        ])
+
+        if scroll_factors >= 4:
+            return 5
+        elif scroll_factors >= 3:
+            return 4
+        elif scroll_factors >= 2:
+            return 3
+        elif scroll_factors >= 1:
+            return 2
         else:
-            avg_score = sum(s.get("total", 0) for s in scores) / len(scores)
-            best = max(scores, key=lambda x: x.get("total", 0))
-            worst = min(scores, key=lambda x: x.get("total", 0))
+            return 1
 
-        report = {
-            "num_runs": len(results),
-            "successful_runs": successful,
-            "tweets_scored": len(scores),
-            "average_score": round(avg_score, 1),
-            "max_score": 50,
-            "percentage": round((avg_score / 50) * 100, 1) if avg_score else 0,
-            "best_run": best,
-            "worst_run": worst,
-            "all_scores": scores,
-            "all_results": results
-        }
+    def _check_thresholds(
+        self, hookiness_score: int, quality_score: int, total_score: int
+    ) -> Tuple[bool, str]:
+        """Check if scores meet thresholds."""
+        failures = []
 
-        # Print report
-        self._print_report(report)
+        if self.eval_mode in ["hookiness", "both"]:
+            if hookiness_score < self.hookiness_min:
+                failures.append(
+                    f"Hookiness too low: {hookiness_score}/{self.hookiness_min} required"
+                )
 
-        return report
+        if self.eval_mode in ["quality", "both"]:
+            if quality_score < self.quality_min:
+                failures.append(
+                    f"Quality too low: {quality_score}/{self.quality_min} required"
+                )
 
-    def _print_report(self, report: Dict[str, Any]):
-        """Print formatted evaluation report."""
-        print(f"\n{'='*50}")
-        print("AGENT EVALUATION REPORT")
-        print(f"{'='*50}")
-        print(f"Runs: {report['num_runs']}")
-        print(f"Successful: {report['successful_runs']}")
-        print(f"Tweets Scored: {report['tweets_scored']}")
-        print(f"Average Score: {report['average_score']} / {report['max_score']} ({report['percentage']}%)")
+        if total_score < self.total_min:
+            failures.append(
+                f"Total score too low: {total_score}/{self.total_min} required"
+            )
 
-        if report.get("best_run"):
-            best = report["best_run"]
-            print(f"\nBest Run (#{best['run']}): {best.get('total', 0)}/50")
-            # Find the tweet
-            for r in report.get("all_results", []):
-                if r.get("run") == best["run"] and r.get("tweet"):
-                    print(f"  \"{r['tweet'][:80]}...\"")
-                    break
-            print(f"  Feedback: {best.get('feedback', 'N/A')}")
+        if failures:
+            return False, " | ".join(failures)
 
-        if report.get("worst_run") and report.get("best_run") != report.get("worst_run"):
-            worst = report["worst_run"]
-            print(f"\nWorst Run (#{worst['run']}): {worst.get('total', 0)}/50")
-            print(f"  Feedback: {worst.get('feedback', 'N/A')}")
+        return True, ""
 
-        # Score breakdown
-        if report.get("all_scores"):
-            scores = report["all_scores"]
-            print(f"\nScore Breakdown:")
-            print(f"  Thesis Clarity: {sum(s.get('clarity', 0) for s in scores) / len(scores):.1f} avg")
-            print(f"  News-Driven:    {sum(s.get('news', 0) for s in scores) / len(scores):.1f} avg")
-            print(f"  Actionable:     {sum(s.get('actionable', 0) for s in scores) / len(scores):.1f} avg")
-            print(f"  Engagement:     {sum(s.get('engagement', 0) for s in scores) / len(scores):.1f} avg")
-            print(f"  Originality:    {sum(s.get('originality', 0) for s in scores) / len(scores):.1f} avg")
+    def format_report(self, score: UnifiedScore) -> str:
+        """Format evaluation report for logging."""
+        lines = [
+            "=" * 50,
+            "POST EVALUATION REPORT",
+            "=" * 50,
+            f"OVERALL: {'✓ PASS' if score.passed else '✗ FAIL'}",
+            f"Total Score: {score.total}/75 (min {self.total_min})",
+            "",
+            f"HOOKINESS (Engagement): {score.hookiness.total}/25 (min {self.hookiness_min})",
+            f"  - News Hook: {score.hookiness.news_hook}/5",
+            f"  - Specificity: {score.hookiness.specificity}/5",
+            f"  - Urgency: {score.hookiness.urgency}/5",
+            f"  - Human Voice: {score.hookiness.human_voice}/5",
+            f"  - Scroll Stop: {score.hookiness.scroll_stop}/5",
+            "",
+            f"QUALITY (Content): {score.quality.total}/50 (min {self.quality_min})",
+            f"  - Thesis Clarity: {score.quality.thesis_clarity}/10",
+            f"  - News Driven: {score.quality.news_driven}/10",
+            f"  - Actionable: {score.quality.actionable}/10",
+            f"  - Engagement: {score.quality.engagement}/10",
+            f"  - Originality: {score.quality.originality}/10",
+        ]
 
-        print(f"{'='*50}\n")
+        if not score.passed:
+            lines.extend([
+                "",
+                f"FAILURE REASON: {score.failure_reason}",
+            ])
 
-
-def run_evaluation(platform: str = "twitter", num_runs: int = 5) -> Dict[str, Any]:
-    """Run agent evaluation."""
-    evaluator = AgentEvaluator()
-    return evaluator.run_eval(platform=platform, num_runs=num_runs)
+        lines.append("=" * 50)
+        return "\n".join(lines)

@@ -3,15 +3,22 @@
 import json
 import logging
 import re
+import time
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 
 from google import genai
 from google.genai import types
+from google.genai.errors import ServerError
 
 from .config import Config
 
 logger = logging.getLogger(__name__)
+
+# Retry configuration
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 2.0
+RETRY_BACKOFF_MULTIPLIER = 2.0
 
 
 @dataclass
@@ -43,8 +50,8 @@ class LLMClient:
         if not Config.GEMINI_API_KEY:
             raise ValueError("GEMINI_API_KEY not configured")
 
-        # Initialize the genai client with API key
         self.client = genai.Client(api_key=Config.GEMINI_API_KEY)
+        self.model_name = Config.LLM_MODEL
         self.enable_grounding = enable_grounding
 
         # Configure grounding tool if enabled
@@ -79,33 +86,62 @@ class LLMClient:
         prompt = self._build_prompt_with_tools(messages, tools)
 
         # Configure generation
-        config_tools = [self.grounding_tool] if self.grounding_tool else None
-
         config = types.GenerateContentConfig(
             temperature=0.7,
             max_output_tokens=1024,
-            tools=config_tools,
         )
 
-        try:
-            response = self.client.models.generate_content(
-                model=Config.LLM_MODEL,
-                contents=prompt,
-                config=config,
-            )
+        # Retry loop for transient errors
+        last_error = None
+        delay = RETRY_DELAY_SECONDS
 
-            # Extract grounding sources if available
-            grounding_sources = self._extract_grounding_sources(response)
-            if grounding_sources:
-                logger.info(f"Grounding sources used: {len(grounding_sources)}")
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                # Generate response using new API
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=config,
+                )
 
-            parsed = self._parse_response(response.text)
-            parsed.grounding_sources = grounding_sources
-            return parsed
+                # Extract text from response
+                response_text = response.text if hasattr(response, 'text') and response.text else str(response)
 
-        except Exception as e:
-            logger.exception("LLM generation failed")
-            raise
+                # Ensure response_text is a string
+                if not isinstance(response_text, str):
+                    response_text = str(response_text)
+
+                # Extract grounding sources if available
+                grounding_sources = self._extract_grounding_sources(response)
+                if grounding_sources:
+                    logger.info(f"Grounding sources used: {len(grounding_sources)}")
+
+                parsed = self._parse_response(response_text)
+                parsed.grounding_sources = grounding_sources
+                return parsed
+
+            except ServerError as e:
+                # Retry on 500/503 server errors
+                last_error = e
+                if attempt < MAX_RETRIES:
+                    logger.warning(
+                        f"Gemini server error (attempt {attempt}/{MAX_RETRIES}): {e}. "
+                        f"Retrying in {delay:.1f}s..."
+                    )
+                    time.sleep(delay)
+                    delay *= RETRY_BACKOFF_MULTIPLIER
+                else:
+                    logger.error(f"Gemini server error after {MAX_RETRIES} attempts: {e}")
+                    raise
+
+            except Exception as e:
+                # Don't retry on other errors (auth, validation, etc.)
+                logger.exception("LLM generation failed (non-retryable)")
+                raise
+
+        # Should not reach here, but just in case
+        if last_error:
+            raise last_error
 
     def _build_prompt_with_tools(
         self,

@@ -3,10 +3,11 @@
 import logging
 import httpx
 import uuid
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from .base import BaseTool
 from agent.config import Config
+from agent.supabase_auth import SupabaseAuth
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,22 @@ class QueryAlphaCopilotTool(BaseTool):
 
     def __init__(self):
         self.api_url = Config.ALPHA_COPILOT_API_URL
+        self.api_key = Config.ALPHA_COPILOT_API_KEY
         self.timeout = 120.0  # LLM processing can take time
+
+        # Use Supabase auth if configured, otherwise fall back to static API key
+        self._supabase_auth: Optional[SupabaseAuth] = None
+        if Config.validate_supabase():
+            self._supabase_auth = SupabaseAuth()
+            logger.info("Using Supabase authentication for backend API")
+        elif self.api_key:
+            logger.info("Using static API key for backend API")
+
+    def _get_auth_token(self) -> Optional[str]:
+        """Get authentication token (from Supabase or static API key)."""
+        if self._supabase_auth:
+            return self._supabase_auth.get_access_token()
+        return self.api_key if self.api_key else None
 
     def get_schema(self) -> Dict[str, Any]:
         return {
@@ -41,10 +57,24 @@ class QueryAlphaCopilotTool(BaseTool):
         """Execute query against Alpha Copilot API."""
         logger.info(f"Querying Alpha Copilot: {query}")
 
+        # Get auth token (from Supabase or static API key)
+        token = self._get_auth_token()
+        if not token:
+            if self._supabase_auth:
+                return "ERROR: Failed to authenticate with Supabase. Check credentials."
+            else:
+                return "ERROR: No authentication configured. Set SUPABASE_* or ALPHA_COPILOT_API_KEY."
+
         try:
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            }
+
             with httpx.Client(timeout=self.timeout) as client:
                 response = client.post(
                     f"{self.api_url}/api/query",
+                    headers=headers,
                     json={
                         "query": query,
                         "session_id": f"social_agent_{uuid.uuid4().hex[:8]}"
@@ -108,6 +138,24 @@ class QueryAlphaCopilotTool(BaseTool):
 
         except httpx.TimeoutException:
             return "ERROR: Request timed out. The Alpha Copilot API is taking too long."
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code
+            if status == 401:
+                # Token might be expired, try to refresh
+                if self._supabase_auth:
+                    logger.warning("Got 401, attempting token refresh...")
+                    success, msg = self._supabase_auth.refresh()
+                    if success:
+                        # Retry with new token
+                        return self.execute(query)
+                    else:
+                        return f"ERROR: Authentication failed (401). Token refresh failed: {msg}"
+                return "ERROR: Authentication failed (401). Check your API key or Supabase credentials."
+            elif status == 403:
+                return "ERROR: Access forbidden (403). Your account may not have API access."
+            else:
+                body = e.response.text[:200] if e.response.text else "No details"
+                return f"ERROR: HTTP {status}: {body}"
         except httpx.HTTPError as e:
             return f"ERROR: HTTP error: {e}"
         except Exception as e:

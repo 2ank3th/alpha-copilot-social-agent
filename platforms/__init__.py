@@ -2,5 +2,6 @@
 
 from .base import BasePlatform
 from .twitter import TwitterPlatform
+from .threads import ThreadsPlatform
 
-__all__ = ["BasePlatform", "TwitterPlatform"]
+__all__ = ["BasePlatform", "TwitterPlatform", "ThreadsPlatform"]
