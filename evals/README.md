@@ -1,23 +1,9 @@
 # Evaluation System
 
-## Production Eval
-
-- **`agent/eval.py`** - Unified evaluation system used in production agent loop
-  - Combines hookiness (engagement) + quality (content) metrics
-  - Gates posts before publishing - low scores → abort
-  - Configurable thresholds via environment variables
-
-## Standalone Testing
-
-- **`standalone_hookiness_test.py`** - Standalone hookiness eval for testing
-  - Compares "old style" vs "new style" posts
-  - Useful for testing scoring logic independently
-  - Can evaluate historical posts
-
-Run standalone test:
-```bash
-python -m evals.standalone_hookiness_test
-```
+**`agent/eval.py`** - Unified evaluation system used in production agent loop
+- Combines hookiness (engagement) + quality (content) metrics
+- Gates posts before publishing - low scores → abort
+- Configurable thresholds via environment variables
 
 ## Scoring Criteria
 

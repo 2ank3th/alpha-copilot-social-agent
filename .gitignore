@@ -67,3 +67,4 @@ Thumbs.db
 
 # Project specific
 *.log
+eval_results_*.json
