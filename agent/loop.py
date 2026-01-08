@@ -85,7 +85,7 @@ class AgentLoop:
                     try:
                         result = self.tools.execute(tool_name, **tool_args)
 
-                        # NEW: Evaluation gate for write_post
+                        # Evaluation gate for write_post
                         if tool_name == "write_post" and "POST_READY" in result:
                             post_text = self._extract_post_text(result)
                             if post_text:

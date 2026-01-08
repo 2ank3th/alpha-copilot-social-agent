@@ -150,7 +150,7 @@ TASK_TEMPLATES = {
 }
 
 
-def get_task_prompt(post_type: str, platform: str, sector: str = None) -> str:
+def get_task_prompt(post_type: str = "morning", platform: str = "twitter", sector: str = None) -> str:
     """Generate a task prompt for the agent."""
     template = TASK_TEMPLATES.get(post_type, TASK_TEMPLATES["morning"])
 

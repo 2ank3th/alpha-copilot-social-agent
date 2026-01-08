@@ -102,6 +102,10 @@ def run_eval_mode(args) -> None:
 
     print(f"\nSuccessful Runs: {len(successful_runs)}/{args.runs}")
 
+    avg_total = 0
+    avg_hookiness = 0
+    avg_quality = 0
+
     if successful_runs:
         print(f"Pass Rate: {len(passed_runs)/len(successful_runs)*100:.1f}% ({len(passed_runs)}/{len(successful_runs)} passed)")
 
@@ -178,6 +182,7 @@ Examples:
   python -m agent.main --post sector --sector XLF  # Sector-focused cross-post
   python -m agent.main --post morning --dry-run    # Test without posting
   python -m agent.main --task "Post a bullish play for NVDA"
+  python -m agent.main --eval --runs 5             # Evaluation mode
         """
     )
 

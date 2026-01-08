@@ -1,7 +1,7 @@
 # Alpha Copilot Social Agent Dependencies
 
-# LLM
-google-genai>=0.2.0
+# LLM - using new google-genai package (not deprecated google-generativeai)
+google-genai>=1.0.0
 
 # HTTP Client
 httpx>=0.27.0

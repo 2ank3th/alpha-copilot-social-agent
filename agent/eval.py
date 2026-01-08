@@ -83,7 +83,7 @@ class PostEvaluator:
         )
 
     def _score_hookiness_heuristic(self, post: str) -> HookinessScore:
-        """Score post hookiness using heuristic rules (from hookiness_eval.py)."""
+        """Score post hookiness using heuristic rules."""
 
         # NEWS_HOOK: Check for news indicators
         news_patterns = [

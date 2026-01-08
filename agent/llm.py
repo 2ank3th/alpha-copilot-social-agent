@@ -1,4 +1,4 @@
-"""LLM client for the agent."""
+"""LLM client for the agent using google-genai package."""
 
 import json
 import logging
@@ -27,17 +27,42 @@ class LLMResponse:
     reasoning: str
     tool_call: Optional[Dict[str, Any]] = None
     is_done: bool = False
+    grounding_sources: Optional[List[str]] = None
 
 
 class LLMClient:
-    """Client for interacting with Gemini LLM using text-based tool calling."""
+    """Client for interacting with Gemini LLM with Google Search grounding.
 
-    def __init__(self):
+    Uses the google-genai package (not the deprecated google-generativeai).
+    Raises exceptions on failure - no silent fallbacks.
+    """
+
+    def __init__(self, enable_grounding: bool = True):
+        """Initialize the LLM client.
+
+        Args:
+            enable_grounding: Enable Google Search grounding for web research
+
+        Raises:
+            ValueError: If GEMINI_API_KEY is not configured
+            Exception: If client initialization fails
+        """
         if not Config.GEMINI_API_KEY:
             raise ValueError("GEMINI_API_KEY not configured")
 
         self.client = genai.Client(api_key=Config.GEMINI_API_KEY)
         self.model_name = Config.LLM_MODEL
+        self.enable_grounding = enable_grounding
+
+        # Configure grounding tool if enabled
+        if enable_grounding:
+            self.grounding_tool = types.Tool(
+                google_search=types.GoogleSearch()
+            )
+            logger.info("LLM initialized with Google Search grounding enabled")
+        else:
+            self.grounding_tool = None
+            logger.info("LLM initialized without grounding")
 
     def generate(
         self,
@@ -53,6 +78,9 @@ class LLMClient:
 
         Returns:
             LLMResponse with reasoning and optional tool call
+
+        Raises:
+            Exception: If LLM generation fails
         """
         # Build prompt with tool instructions
         prompt = self._build_prompt_with_tools(messages, tools)
@@ -83,7 +111,14 @@ class LLMClient:
                 if not isinstance(response_text, str):
                     response_text = str(response_text)
 
-                return self._parse_response(response_text)
+                # Extract grounding sources if available
+                grounding_sources = self._extract_grounding_sources(response)
+                if grounding_sources:
+                    logger.info(f"Grounding sources used: {len(grounding_sources)}")
+
+                parsed = self._parse_response(response_text)
+                parsed.grounding_sources = grounding_sources
+                return parsed
 
             except ServerError as e:
                 # Retry on 500/503 server errors
@@ -234,3 +269,29 @@ class LLMClient:
             tool_call=None,
             is_done=False
         )
+
+    def _extract_grounding_sources(self, response) -> Optional[List[str]]:
+        """Extract grounding sources from response metadata."""
+        sources = []
+        try:
+            # Check for grounding metadata in candidates
+            if hasattr(response, 'candidates') and response.candidates:
+                for candidate in response.candidates:
+                    if hasattr(candidate, 'grounding_metadata') and candidate.grounding_metadata:
+                        metadata = candidate.grounding_metadata
+                        # Extract from grounding_chunks
+                        if hasattr(metadata, 'grounding_chunks') and metadata.grounding_chunks:
+                            for chunk in metadata.grounding_chunks:
+                                if hasattr(chunk, 'web') and chunk.web:
+                                    uri = getattr(chunk.web, 'uri', None)
+                                    title = getattr(chunk.web, 'title', None)
+                                    if uri:
+                                        sources.append(f"{title}: {uri}" if title else uri)
+                        # Log search queries used
+                        if hasattr(metadata, 'web_search_queries') and metadata.web_search_queries:
+                            logger.debug(f"Search queries: {metadata.web_search_queries}")
+        except Exception as e:
+            # Log but don't fail - grounding metadata extraction is non-critical
+            logger.debug(f"Could not extract grounding sources: {e}")
+
+        return sources if sources else None
