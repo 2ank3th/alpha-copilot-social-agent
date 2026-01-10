@@ -28,10 +28,6 @@ def run_eval_mode(args) -> None:
     print(f"EVALUATION MODE - Running {args.runs} iterations")
     print("=" * 70)
 
-    # Force dry run
-    original_dry_run = Config.DRY_RUN
-    Config.DRY_RUN = True
-
     # Generate task
     if args.task:
         task = args.task
@@ -43,53 +39,55 @@ def run_eval_mode(args) -> None:
     evaluator = PostEvaluator()
     results: List[Dict[str, Any]] = []
 
-    # Run agent N times
-    for run_num in range(1, args.runs + 1):
-        print(f"\n{'='*70}")
-        print(f"RUN {run_num}/{args.runs}")
-        print('='*70)
+    # Force dry run using context manager
+    with Config.override(DRY_RUN=True):
+        # Run agent N times
+        for run_num in range(1, args.runs + 1):
+            print(f"\n{'='*70}")
+            print(f"RUN {run_num}/{args.runs}")
+            print('='*70)
 
-        try:
-            agent = create_agent()
-            result = agent.run(task)
+            try:
+                agent = create_agent()
+                result = agent.run(task)
 
-            # Get post text from agent's pending_post (stored during write_post evaluation)
-            post_text = agent._pending_post
+                # Get post text from agent's pending_post (stored during write_post evaluation)
+                post_text = agent._pending_post
 
-            # Evaluate the post
-            if post_text:
-                eval_result = evaluator.evaluate(post_text)
+                # Evaluate the post
+                if post_text:
+                    eval_result = evaluator.evaluate(post_text)
 
-                results.append({
-                    'run': run_num,
-                    'success': True,
-                    'post_text': post_text,
-                    'hookiness': eval_result.hookiness.total,
-                    'quality': eval_result.quality.total,
-                    'total': eval_result.total,
-                    'passed': eval_result.passed,
-                    'failure_reason': eval_result.failure_reason
-                })
+                    results.append({
+                        'run': run_num,
+                        'success': True,
+                        'post_text': post_text,
+                        'hookiness': eval_result.hookiness.total,
+                        'quality': eval_result.quality.total,
+                        'total': eval_result.total,
+                        'passed': eval_result.passed,
+                        'failure_reason': eval_result.failure_reason
+                    })
 
-                print(f"\n✓ Post generated and evaluated")
-                print(f"  Score: {eval_result.total}/75 ({'PASS' if eval_result.passed else 'FAIL'})")
-                print(f"  Hookiness: {eval_result.hookiness.total}/25")
-                print(f"  Quality: {eval_result.quality.total}/50")
-            else:
+                    print(f"\n✓ Post generated and evaluated")
+                    print(f"  Score: {eval_result.total}/75 ({'PASS' if eval_result.passed else 'FAIL'})")
+                    print(f"  Hookiness: {eval_result.hookiness.total}/25")
+                    print(f"  Quality: {eval_result.quality.total}/50")
+                else:
+                    results.append({
+                        'run': run_num,
+                        'success': False,
+                        'error': 'Could not extract post text from result'
+                    })
+                    print(f"\n✗ Failed to extract post text")
+
+            except Exception as e:
                 results.append({
                     'run': run_num,
                     'success': False,
-                    'error': 'Could not extract post text from result'
+                    'error': str(e)
                 })
-                print(f"\n✗ Failed to extract post text")
-
-        except Exception as e:
-            results.append({
-                'run': run_num,
-                'success': False,
-                'error': str(e)
-            })
-            print(f"\n✗ Run failed: {e}")
+                print(f"\n✗ Run failed: {e}")
 
     # Generate summary report
     print("\n\n")
@@ -164,9 +162,6 @@ def run_eval_mode(args) -> None:
     print(f"\n{'='*70}")
     print(f"Detailed results saved to: {filename}")
     print('='*70)
-
-    # Restore original dry run setting
-    Config.DRY_RUN = original_dry_run
 
 
 def main():

@@ -3,7 +3,6 @@
 import json
 import logging
 import re
-import time
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 
@@ -12,13 +11,9 @@ from google.genai import types
 from google.genai.errors import ServerError
 
 from .config import Config
+from .retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
-
-# Retry configuration
-MAX_RETRIES = 3
-RETRY_DELAY_SECONDS = 2.0
-RETRY_BACKOFF_MULTIPLIER = 2.0
 
 
 @dataclass
@@ -91,57 +86,36 @@ class LLMClient:
             max_output_tokens=1024,
         )
 
-        # Retry loop for transient errors
-        last_error = None
-        delay = RETRY_DELAY_SECONDS
+        def _do_generate():
+            """Inner function for retry wrapper."""
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=config,
+            )
 
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                # Generate response using new API
-                response = self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=prompt,
-                    config=config,
-                )
+            # Extract text from response
+            response_text = response.text if hasattr(response, 'text') and response.text else str(response)
 
-                # Extract text from response
-                response_text = response.text if hasattr(response, 'text') and response.text else str(response)
+            # Ensure response_text is a string
+            if not isinstance(response_text, str):
+                response_text = str(response_text)
 
-                # Ensure response_text is a string
-                if not isinstance(response_text, str):
-                    response_text = str(response_text)
+            # Extract grounding sources if available
+            grounding_sources = self._extract_grounding_sources(response)
+            if grounding_sources:
+                logger.info(f"Grounding sources used: {len(grounding_sources)}")
 
-                # Extract grounding sources if available
-                grounding_sources = self._extract_grounding_sources(response)
-                if grounding_sources:
-                    logger.info(f"Grounding sources used: {len(grounding_sources)}")
+            parsed = self._parse_response(response_text)
+            parsed.grounding_sources = grounding_sources
+            return parsed
 
-                parsed = self._parse_response(response_text)
-                parsed.grounding_sources = grounding_sources
-                return parsed
-
-            except ServerError as e:
-                # Retry on 500/503 server errors
-                last_error = e
-                if attempt < MAX_RETRIES:
-                    logger.warning(
-                        f"Gemini server error (attempt {attempt}/{MAX_RETRIES}): {e}. "
-                        f"Retrying in {delay:.1f}s..."
-                    )
-                    time.sleep(delay)
-                    delay *= RETRY_BACKOFF_MULTIPLIER
-                else:
-                    logger.error(f"Gemini server error after {MAX_RETRIES} attempts: {e}")
-                    raise
-
-            except Exception as e:
-                # Don't retry on other errors (auth, validation, etc.)
-                logger.exception("LLM generation failed (non-retryable)")
-                raise
-
-        # Should not reach here, but just in case
-        if last_error:
-            raise last_error
+        # Use retry utility for transient server errors
+        return retry_with_backoff(
+            func=_do_generate,
+            retryable_exceptions=ServerError,
+            operation_name="Gemini LLM generation",
+        )
 
     def _build_prompt_with_tools(
         self,

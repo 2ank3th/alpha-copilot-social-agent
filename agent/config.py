@@ -1,7 +1,8 @@
 """Configuration for the Alpha Copilot Social Agent."""
 
 import os
-from pathlib import Path
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator
 from dotenv import load_dotenv
 
 # Load .env first, then .env.local overrides
@@ -107,3 +108,29 @@ class Config:
         if cls.validate_threads():
             platforms.append("threads")
         return platforms
+
+    @classmethod
+    @contextmanager
+    def override(cls, **kwargs: Any) -> Iterator[None]:
+        """Temporarily override config values.
+
+        Usage:
+            with Config.override(DRY_RUN=True, ENABLE_PROMO_POST=False):
+                # Config values are temporarily changed
+                run_agent()
+            # Original values are restored
+        """
+        original: Dict[str, Any] = {}
+        for key in kwargs:
+            if hasattr(cls, key):
+                original[key] = getattr(cls, key)
+            else:
+                raise ValueError(f"Unknown config key: {key}")
+
+        try:
+            for key, value in kwargs.items():
+                setattr(cls, key, value)
+            yield
+        finally:
+            for key, value in original.items():
+                setattr(cls, key, value)

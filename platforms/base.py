@@ -1,7 +1,7 @@
 """Base class for platform adapters."""
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 
 class BasePlatform(ABC):
@@ -11,12 +11,13 @@ class BasePlatform(ABC):
     max_length: int  # Character limit for posts
 
     @abstractmethod
-    def publish(self, content: str) -> Dict[str, Any]:
+    def publish(self, content: str, reply_to_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Publish content to the platform.
 
         Args:
             content: The text content to publish
+            reply_to_id: Optional ID of post to reply to (for threading)
 
         Returns:
             Dict with 'success', 'post_id', 'url', and optionally 'error'

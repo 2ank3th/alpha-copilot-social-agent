@@ -32,8 +32,8 @@ class TwitterPlatform(BasePlatform):
                 access_token_secret=Config.TWITTER_ACCESS_SECRET
             )
 
-    def publish(self, content: str) -> Dict[str, Any]:
-        """Publish a tweet."""
+    def publish(self, content: str, reply_to_id: str = None) -> Dict[str, Any]:
+        """Publish a tweet, optionally as a reply to create a thread."""
         if Config.DRY_RUN:
             logger.info(f"[DRY RUN] Would tweet: {content[:50]}...")
             return {
@@ -53,7 +53,15 @@ class TwitterPlatform(BasePlatform):
             # Truncate to max length
             content = self.truncate_content(content)
 
-            response = self._client.create_tweet(text=content)
+            # Create tweet, optionally as reply to form a thread
+            if reply_to_id:
+                response = self._client.create_tweet(
+                    text=content,
+                    in_reply_to_tweet_id=reply_to_id
+                )
+            else:
+                response = self._client.create_tweet(text=content)
+
             tweet_id = response.data["id"]
 
             return {

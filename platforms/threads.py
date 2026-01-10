@@ -31,9 +31,13 @@ class ThreadsPlatform(BasePlatform):
         """Check if Threads credentials are configured."""
         return bool(self._access_token and self._user_id)
 
-    def _create_container(self, content: str) -> Optional[str]:
+    def _create_container(self, content: str, reply_to_id: str = None) -> Optional[str]:
         """
         Create a media container for the Threads post.
+
+        Args:
+            content: The text content to post
+            reply_to_id: Optional post ID to reply to (creates a thread)
 
         Returns the container ID if successful, None otherwise.
         """
@@ -43,6 +47,10 @@ class ThreadsPlatform(BasePlatform):
             "text": content,
             "access_token": self._access_token,
         }
+
+        # Add reply_to_id if provided to create a thread
+        if reply_to_id:
+            params["reply_to_id"] = reply_to_id
 
         try:
             response = self._client.post(url, params=params)
@@ -73,8 +81,8 @@ class ThreadsPlatform(BasePlatform):
             logger.error(f"Failed to publish Threads container: {e}")
             return {"error": str(e)}
 
-    def publish(self, content: str) -> Dict[str, Any]:
-        """Publish a post to Threads."""
+    def publish(self, content: str, reply_to_id: str = None) -> Dict[str, Any]:
+        """Publish a post to Threads, optionally as a reply to create a thread."""
         if Config.DRY_RUN:
             logger.info(f"[DRY RUN] Would post to Threads: {content[:50]}...")
             return {
@@ -94,8 +102,8 @@ class ThreadsPlatform(BasePlatform):
             # Truncate to max length
             content = self.truncate_content(content)
 
-            # Step 1: Create media container
-            container_id = self._create_container(content)
+            # Step 1: Create media container (with optional reply_to_id for threading)
+            container_id = self._create_container(content, reply_to_id)
             if not container_id:
                 return {
                     "success": False,

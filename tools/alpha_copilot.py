@@ -23,6 +23,9 @@ class QueryAlphaCopilotTool(BaseTool):
         self.api_key = Config.ALPHA_COPILOT_API_KEY
         self.timeout = 120.0  # LLM processing can take time
 
+        # Create reusable HTTP client
+        self._client = httpx.Client(timeout=self.timeout)
+
         # Use Supabase auth if configured, otherwise fall back to static API key
         self._supabase_auth: Optional[SupabaseAuth] = None
         if Config.validate_supabase():
@@ -30,6 +33,11 @@ class QueryAlphaCopilotTool(BaseTool):
             logger.info("Using Supabase authentication for backend API")
         elif self.api_key:
             logger.info("Using static API key for backend API")
+
+    def __del__(self):
+        """Clean up HTTP client."""
+        if hasattr(self, '_client'):
+            self._client.close()
 
     def _get_auth_token(self) -> Optional[str]:
         """Get authentication token (from Supabase or static API key)."""
@@ -71,17 +79,16 @@ class QueryAlphaCopilotTool(BaseTool):
                 "Content-Type": "application/json",
             }
 
-            with httpx.Client(timeout=self.timeout) as client:
-                response = client.post(
-                    f"{self.api_url}/api/query",
-                    headers=headers,
-                    json={
-                        "query": query,
-                        "session_id": f"social_agent_{uuid.uuid4().hex[:8]}"
-                    }
-                )
-                response.raise_for_status()
-                data = response.json()
+            response = self._client.post(
+                f"{self.api_url}/api/query",
+                headers=headers,
+                json={
+                    "query": query,
+                    "session_id": f"social_agent_{uuid.uuid4().hex[:8]}"
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
 
             status = data.get("status", "unknown")
 
