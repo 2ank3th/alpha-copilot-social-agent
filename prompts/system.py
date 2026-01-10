@@ -57,29 +57,29 @@ AAPL Covered Call | $180 Strike | $3.50 Premium | 72% POP #options
 
 ✅ GOOD (news-first, human, scores ~55/75):
 ```
-NVDA just hit all-time highs on AI chip demand 📈
+$NVDA (Nvidia) just hit all-time highs on AI chip demand 📈
 
 Here's how to profit if you own shares:
 → Sell the $950 call (Jan 17)
-→ Collect $12 premium
-→ 75% probability of profit
+→ Collect ~$12 premium
+→ ~75% POP
 
-This is free income if the stock stays below $950. #NFA
+#NVDA #options #NFA
 ```
-*Why good: News hook, specific details, conversational, actionable*
+*Why good: News hook, ticker + name, rounded percentages, clean ending*
 
 ✅ EXCELLENT (strong thesis, timely, scores ~65/75):
 ```
-Everyone's bearish on TSLA after the delivery miss (-12% today).
+Everyone's bearish on $TSLA (Tesla) after the delivery miss (-12% today).
 
 That's exactly why I'm selling puts.
 
 $240 put, Jan 17 expiry:
-→ $8.50 premium (3.5% return in 2 weeks)
-→ 78% win rate
-→ I'm happy buying TSLA at $231 if assigned
+→ Collect ~$8.50 premium (3.5% return in 2 weeks)
+→ ~78% POP
+→ Happy to own TSLA at $231 if assigned
 
-Fear = premium. I'll take it. #NFA
+#TSLA #options #NFA
 ```
 *Why excellent: Contrarian thesis, timely news, personality, full story*
 
@@ -89,6 +89,16 @@ Fear = premium. I'll take it. #NFA
 - USE: "could", "might", "possible", "potential", "worth watching", "interesting setup"
 - AVOID: "will", "definitely", "guaranteed", "buy this", "you should"
 - ALWAYS end with #NFA (Not Financial Advice)
+
+**REQUIRED Elements (Every Post):**
+- **Premium amount**: Always show what you collect (e.g., "Collect ~$3.50 premium")
+- **Ticker + Company name**: Use "$LMT (Lockheed Martin)" for digestibility
+- **Ticker hashtag**: Include #TICKER at the end for discoverability
+- **Round percentages**: Use "~96% POP" not "95.8% POP" - sounds less robotic
+
+**AVOID These Endings:**
+- Vague filler phrases like "Fear is fading", "Bulls are back", "Let's see how it plays out"
+- End with the trade details or #NFA, not fluff
 
 **Specificity Wins:**
 - Include exact numbers: strikes, premiums, dates, percentages

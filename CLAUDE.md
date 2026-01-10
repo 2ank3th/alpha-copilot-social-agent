@@ -124,6 +124,30 @@ Environment variables (`.env` file):
 - `TWITTER_*` - Twitter API credentials
 - `DRY_RUN` - Set to `true` to skip posting (default: true)
 
+## Troubleshooting
+
+### Common Errors
+
+**Supabase auth failure (`Invalid credentials`)**
+- Check `SUPABASE_EMAIL` and `SUPABASE_PASSWORD` in `.env`
+- Verify user exists in Supabase dashboard → Authentication → Users
+- Reset password if needed and update `.env`
+
+**Twitter 401 Unauthorized**
+- Twitter API credentials expired or revoked
+- Regenerate tokens in Twitter Developer Portal
+- Update `TWITTER_*` values in `.env`
+
+### Validating Credentials
+
+Test Supabase auth:
+```bash
+curl -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
+  -H "apikey: $SUPABASE_ANON_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "'"$SUPABASE_EMAIL"'", "password": "'"$SUPABASE_PASSWORD"'"}'
+```
+
 ## Content Guidelines
 
 ### Tone: Suggestive, Not Certain

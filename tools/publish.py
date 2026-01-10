@@ -16,22 +16,22 @@ PLATFORMS = {
     "threads": ThreadsPlatform,
 }
 
-# Promotional messages for Alpha Copilot
+# Promotional messages for Alpha Copilot (posted as reply thread)
 PROMO_MESSAGES = {
     "twitter": (
-        "🚀 Want more options insights like this? "
-        "Alpha Copilot uses AI to find high-probability trades tailored to your risk profile. "
-        f"Try it free: {{url}} #AlphaCopilot #OptionsTrading"
+        "Want more options insights like this?\n\n"
+        "Alpha Copilot uses AI to find high-probability trades "
+        "tailored to your risk profile.\n\n"
+        "Try it free: {url}"
     ),
     "threads": (
-        "🚀 Want more options insights like this?\n\n"
+        "Want more options insights like this?\n\n"
         "Alpha Copilot uses AI to analyze thousands of options contracts "
         "and find high-probability trades tailored to your risk profile.\n\n"
         "✅ Income strategies (covered calls, cash-secured puts)\n"
         "✅ Real-time market analysis\n"
         "✅ Personalized recommendations\n\n"
-        "Try it free: {url}\n\n"
-        "#AlphaCopilot #OptionsTrading #FinTech"
+        "Try it free: {url}"
     ),
 }
 
@@ -292,20 +292,21 @@ class CrossPostTool(BaseTool):
                 else:
                     results.append(f"SUCCESS: {platform_name} - Post ID: {post_id}, URL: {url}")
 
-                # Post promotional follow-up if enabled
+                # Post promotional follow-up as reply thread if enabled
                 if include_promo and not dry_run:
                     promo_content = self._get_promo_message(platform_name)
-                    promo_result = platform.publish(promo_content)
+                    # Post promo as reply to main post (creates a thread)
+                    promo_result = platform.publish(promo_content, reply_to_id=post_id)
 
                     if promo_result.get("success"):
                         promo_id = promo_result.get("post_id", "unknown")
                         promo_url = promo_result.get("url", "")
-                        results.append(f"PROMO: {platform_name} - Post ID: {promo_id}, URL: {promo_url}")
+                        results.append(f"PROMO (thread): {platform_name} - Post ID: {promo_id}, URL: {promo_url}")
                     else:
                         promo_error = promo_result.get("error", "Unknown error")
                         results.append(f"PROMO_FAILED: {platform_name} - {promo_error}")
                 elif include_promo and dry_run:
-                    results.append(f"DRY_RUN: {platform_name} promo - would have posted")
+                    results.append(f"DRY_RUN: {platform_name} promo thread - would have posted as reply")
             else:
                 error = result.get("error", "Unknown error")
                 results.append(f"FAILED: {platform_name} - {error}")

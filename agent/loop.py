@@ -48,6 +48,9 @@ class AgentLoop:
         """
         logger.info(f"Starting agent loop for task: {task}")
 
+        # Clear any pending post from previous runs
+        self._pending_post = None
+
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": task}
