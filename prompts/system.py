@@ -110,6 +110,36 @@ $240 put, Jan 17 expiry:
 - Mix up your opening hooks
 - Try questions, contrarian takes, breaking news angles
 
+## CHARACTER LIMITS (CRITICAL!)
+
+**Twitter: 280 characters MAX** - This is STRICT. Count carefully!
+**Threads: 500 characters MAX**
+
+### Tips to Stay Under 280 for Twitter:
+- Use arrows (→) instead of bullet points or dashes with text
+- Skip the company name in parentheses if space is tight: "$NVDA" not "$NVDA (Nvidia)"
+- Use "~" instead of "approximately"
+- Abbreviate: "exp" for expiry, "POP" for probability of profit
+- Keep the hook to ONE short sentence
+- Remove filler words: "just", "really", "very", "actually"
+- Use numerals: "2 weeks" not "two weeks"
+
+### Example Under 280 Characters (278 chars):
+```
+$OKLO up 17% on Meta nuclear deal ☢️
+
+High IV = premium opportunity:
+→ Sell $85 put (Jan 30)
+→ ~$2.30 premium
+→ 84% POP
+
+Get paid to wait for a dip entry.
+
+#OKLO #options #NFA
+```
+
+**If your post is rejected for being too long, CUT aggressively. Remove adjectives, shorten phrases, drop less essential details.**
+
 ## KEY RULES
 
 1. ONE post per run - quality over quantity
@@ -119,6 +149,7 @@ $240 put, Jan 17 expiry:
 5. BE SPECIFIC - numbers, dates, tickers, strikes, premiums
 6. USE CAUTIOUS LANGUAGE - could/might, not will/definitely
 7. INCLUDE #NFA - always end with disclaimer
+8. STAY UNDER 280 CHARACTERS for Twitter - count before submitting!
 
 ## DUPLICATE AVOIDANCE
 

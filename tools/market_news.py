@@ -40,8 +40,14 @@ class GetMarketNewsTool(BaseTool):
             }
         }
 
-    def execute(self) -> str:
-        """Fetch the biggest market news using Gemini with grounding."""
+    def execute(self, **kwargs) -> str:
+        """Fetch the biggest market news using Gemini with grounding.
+
+        Args:
+            **kwargs: Ignored. This tool takes no arguments, but kwargs are
+                      accepted to handle cases where the LLM passes unexpected
+                      parameters.
+        """
         logger.info("Fetching biggest market news via Google Search grounding")
 
         if not Config.GEMINI_API_KEY:
