@@ -67,10 +67,24 @@ class WritePostTool(BaseTool):
 
         # Validation
         if char_count > limit:
+            over_by = char_count - limit
+            tips = []
+            if "(Nvidia)" in post_text or "(Tesla)" in post_text or "(" in post_text:
+                tips.append("Remove company name in parentheses")
+            if "approximately" in post_text.lower():
+                tips.append("Use '~' instead of 'approximately'")
+            if " just " in post_text.lower():
+                tips.append("Remove filler word 'just'")
+            if "expiration" in post_text.lower() or "expiry" in post_text.lower():
+                tips.append("Use 'exp' instead of 'expiration/expiry'")
+            if len(tips) == 0:
+                tips.append("Remove adjectives and shorten phrases")
+
             return (
                 f"ERROR: Post too long for {platform}. "
-                f"{char_count}/{limit} characters. "
-                f"Please shorten by {char_count - limit} characters."
+                f"{char_count}/{limit} characters (over by {over_by}). "
+                f"Tips to shorten: {', '.join(tips)}. "
+                f"Be aggressive - cut anything non-essential!"
             )
 
         if char_count < 50:

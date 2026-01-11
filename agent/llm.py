@@ -83,7 +83,7 @@ class LLMClient:
         # Configure generation
         config = types.GenerateContentConfig(
             temperature=0.7,
-            max_output_tokens=1024,
+            max_output_tokens=2048,  # Increased to avoid truncation on long posts
         )
 
         def _do_generate():
@@ -181,8 +181,16 @@ class LLMClient:
 
     def _parse_response(self, text: str) -> LLMResponse:
         """Parse LLM response to extract tool call."""
-        # Look for JSON block
+        # Look for JSON block with triple backticks
         json_match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
+
+        # Also try without backticks: "json\n{...}" format
+        if not json_match:
+            json_match = re.search(r'^json\s*(\{.*?\})\s*$', text, re.DOTALL | re.MULTILINE)
+
+        # Also try to match just "json" on one line followed by JSON on next lines
+        if not json_match:
+            json_match = re.search(r'\bjson\b\s*(\{"tool".*?\})\s*(?:```|$)', text, re.DOTALL)
 
         if json_match:
             try:
