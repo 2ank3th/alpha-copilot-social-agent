@@ -1,7 +1,9 @@
-"""Main agent loop implementation."""
+"""Main agent loop implementation with native Gemini function calling."""
 
 import logging
-from typing import Optional
+from typing import Optional, List, Any
+
+from google.genai import types
 
 from .llm import LLMClient, LLMResponse
 from .config import Config
@@ -40,6 +42,9 @@ class AgentLoop:
         """
         Run the agent loop until task complete or max iterations.
 
+        Uses native Gemini function calling for reliable tool execution.
+        Properly preserves thought signatures across conversation turns.
+
         Args:
             task: The task description for the agent
 
@@ -51,18 +56,22 @@ class AgentLoop:
         # Clear any pending post from previous runs
         self._pending_post = None
 
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": task}
+        # Build initial contents with system instruction and user task
+        # System prompt is passed as the first content, then user message
+        contents: List[Any] = [
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=f"{SYSTEM_PROMPT}\n\n---\n\nTask: {task}")]
+            )
         ]
 
         for iteration in range(1, self.max_iterations + 1):
             logger.info(f"Iteration {iteration}/{self.max_iterations}")
 
             try:
-                # 1. Get LLM response
+                # 1. Get LLM response with native function calling
                 response: LLMResponse = self.llm.generate(
-                    messages,
+                    contents,
                     tools=self.tools.get_schemas()
                 )
 
@@ -116,28 +125,52 @@ class AgentLoop:
                         result = f"TOOL_ERROR: {str(e)}"
                         logger.error(f"Tool execution failed: {e}")
 
-                    # 4. Add to context
-                    messages.append({
-                        "role": "assistant",
-                        "content": f"Called {tool_name}: {response.reasoning}"
-                    })
-                    messages.append({
-                        "role": "tool",
-                        "content": result
-                    })
+                    # 4. Add model response to context (preserves thought signatures)
+                    if response.raw_content:
+                        contents.append(response.raw_content)
+                    else:
+                        # Fallback if raw_content not available
+                        contents.append(types.Content(
+                            role="model",
+                            parts=[types.Part.from_function_call(
+                                name=tool_name,
+                                args=tool_args
+                            )]
+                        ))
+
+                    # 5. Add function response
+                    contents.append(types.Content(
+                        role="user",
+                        parts=[types.Part.from_function_response(
+                            name=tool_name,
+                            response={"result": result}
+                        )]
+                    ))
                 else:
-                    # No tool call - add reasoning and continue
-                    messages.append({
-                        "role": "assistant",
-                        "content": response.reasoning
-                    })
+                    # No tool call - add model's text response and continue
+                    if response.raw_content:
+                        contents.append(response.raw_content)
+                    else:
+                        contents.append(types.Content(
+                            role="model",
+                            parts=[types.Part.from_text(text=response.reasoning)]
+                        ))
+
+                    # Add a nudge to use tools
+                    contents.append(types.Content(
+                        role="user",
+                        parts=[types.Part.from_text(
+                            text="Please use one of the available tools to make progress on the task."
+                        )]
+                    ))
 
             except Exception as e:
                 logger.exception(f"Error in iteration {iteration}")
-                messages.append({
-                    "role": "tool",
-                    "content": f"ERROR: {str(e)}"
-                })
+                # Add error as user message
+                contents.append(types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=f"ERROR: {str(e)}. Please try a different approach.")]
+                ))
 
         # Max iterations reached
         logger.warning("Max iterations reached without completion")

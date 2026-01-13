@@ -49,8 +49,8 @@ class TestLLMClientInitialization:
                 assert client.grounding_tool is None
 
 
-class TestLLMPromptBuilding:
-    """Test prompt building for LLM."""
+class TestFunctionDeclarationConversion:
+    """Test conversion of tool schemas to Gemini function declarations."""
 
     @pytest.fixture
     def llm_client(self):
@@ -60,27 +60,14 @@ class TestLLMPromptBuilding:
                 client = LLMClient(enable_grounding=False)
                 return client
 
-    def test_build_prompt_includes_system_message(self, llm_client):
-        """Test prompt includes system message."""
-        messages = [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": "Hello"}
-        ]
-        tools = []
-
-        prompt = llm_client._build_prompt_with_tools(messages, tools)
-
-        assert "You are a helpful assistant." in prompt
-        assert "USER: Hello" in prompt
-
-    def test_build_prompt_includes_tool_descriptions(self, llm_client):
-        """Test prompt includes tool descriptions."""
-        messages = [{"role": "user", "content": "Test"}]
+    def test_convert_simple_tool(self, llm_client):
+        """Test converting a simple tool schema."""
         tools = [
             {
                 "name": "test_tool",
                 "description": "A test tool for testing",
                 "parameters": {
+                    "type": "object",
                     "properties": {
                         "arg1": {"type": "string", "description": "First argument"}
                     },
@@ -89,39 +76,35 @@ class TestLLMPromptBuilding:
             }
         ]
 
-        prompt = llm_client._build_prompt_with_tools(messages, tools)
+        declarations = llm_client._convert_to_function_declarations(tools)
 
-        assert "test_tool" in prompt
-        assert "A test tool for testing" in prompt
-        assert "arg1" in prompt
-        assert "(required)" in prompt
+        assert len(declarations) == 1
+        assert declarations[0].name == "test_tool"
+        assert declarations[0].description == "A test tool for testing"
 
-    def test_build_prompt_handles_conversation_history(self, llm_client):
-        """Test prompt includes full conversation history."""
-        messages = [
-            {"role": "system", "content": "System prompt"},
-            {"role": "user", "content": "User message 1"},
-            {"role": "assistant", "content": "Assistant response"},
-            {"role": "tool", "content": "Tool result here"},
-            {"role": "user", "content": "User message 2"}
+    def test_convert_multiple_tools(self, llm_client):
+        """Test converting multiple tool schemas."""
+        tools = [
+            {"name": "tool1", "description": "First tool", "parameters": {}},
+            {"name": "tool2", "description": "Second tool", "parameters": {}},
+            {"name": "tool3", "description": "Third tool", "parameters": {}}
         ]
-        tools = []
 
-        prompt = llm_client._build_prompt_with_tools(messages, tools)
+        declarations = llm_client._convert_to_function_declarations(tools)
 
-        assert "USER: User message 1" in prompt
-        assert "ASSISTANT: Assistant response" in prompt
-        assert "TOOL RESULT:\nTool result here" in prompt
-        assert "USER: User message 2" in prompt
+        assert len(declarations) == 3
+        assert declarations[0].name == "tool1"
+        assert declarations[1].name == "tool2"
+        assert declarations[2].name == "tool3"
 
-    def test_build_prompt_handles_optional_parameters(self, llm_client):
-        """Test prompt marks optional parameters correctly."""
-        messages = [{"role": "user", "content": "Test"}]
+    def test_convert_tool_with_optional_params(self, llm_client):
+        """Test converting tool with optional parameters."""
         tools = [
             {
                 "name": "tool_with_optional",
                 "description": "Tool with optional param",
                 "parameters": {
+                    "type": "object",
                     "properties": {
                         "required_arg": {"type": "string", "description": "Required"},
                         "optional_arg": {"type": "integer", "description": "Optional"}
@@ -131,16 +114,26 @@ class TestLLMPromptBuilding:
             }
         ]
 
-        prompt = llm_client._build_prompt_with_tools(messages, tools)
+        declarations = llm_client._convert_to_function_declarations(tools)
 
-        assert "required_arg" in prompt
-        assert "(required)" in prompt
-        assert "optional_arg" in prompt
-        assert "(optional)" in prompt
+        assert len(declarations) == 1
+        assert declarations[0].name == "tool_with_optional"
+
+    def test_convert_tool_without_params(self, llm_client):
+        """Test converting tool without parameters."""
+        tools = [
+            {"name": "no_params_tool", "description": "Tool with no params"}
+        ]
+
+        declarations = llm_client._convert_to_function_declarations(tools)
+
+        assert len(declarations) == 1
+        assert declarations[0].name == "no_params_tool"
+        assert declarations[0].parameters is None
 
 
-class TestLLMResponseParsing:
-    """Test LLM response parsing for various formats."""
+class TestNativeResponseParsing:
+    """Test native Gemini response parsing."""
 
     @pytest.fixture
     def llm_client(self):
@@ -150,90 +143,133 @@ class TestLLMResponseParsing:
                 client = LLMClient(enable_grounding=False)
                 return client
 
-    def test_parse_json_with_backticks(self, llm_client):
-        """Test parsing JSON wrapped in triple backticks."""
-        text = '''Here's my reasoning.
+    def test_parse_function_call_response(self, llm_client):
+        """Test parsing response with function call."""
+        mock_function_call = Mock()
+        mock_function_call.name = "write_post"
+        mock_function_call.args = {"post_text": "Test post", "platform": "twitter"}
 
-```json
-{"tool": "write_post", "arguments": {"post_text": "Test post", "platform": "twitter"}}
-```
-'''
-        result = llm_client._parse_response(text)
+        mock_part = Mock()
+        mock_part.function_call = mock_function_call
+        mock_part.text = None
+
+        mock_content = Mock()
+        mock_content.parts = [mock_part]
+
+        mock_candidate = Mock()
+        mock_candidate.content = mock_content
+
+        mock_response = Mock()
+        mock_response.candidates = [mock_candidate]
+
+        result = llm_client._parse_native_response(mock_response)
 
         assert result.tool_call is not None
         assert result.tool_call["name"] == "write_post"
         assert result.tool_call["arguments"]["post_text"] == "Test post"
-        assert result.tool_call["arguments"]["platform"] == "twitter"
 
-    def test_parse_json_without_backticks(self, llm_client):
-        """Test parsing JSON without backticks (json\\n{...} format)."""
-        text = '''json
-{"tool": "get_market_news", "arguments": {}}'''
-        result = llm_client._parse_response(text)
+    def test_parse_text_response(self, llm_client):
+        """Test parsing response with text only."""
+        mock_part = Mock()
+        mock_part.function_call = None
+        mock_part.text = "I'm thinking about what to do next..."
 
-        assert result.tool_call is not None
-        assert result.tool_call["name"] == "get_market_news"
+        mock_content = Mock()
+        mock_content.parts = [mock_part]
 
-    def test_parse_inline_json(self, llm_client):
-        """Test parsing inline JSON without any formatting."""
-        text = 'I will call {"tool": "done", "arguments": {"summary": "Task complete"}} now.'
-        result = llm_client._parse_response(text)
+        mock_candidate = Mock()
+        mock_candidate.content = mock_content
 
-        assert result.tool_call is not None
-        assert result.tool_call["name"] == "done"
-        assert result.tool_call["arguments"]["summary"] == "Task complete"
+        mock_response = Mock()
+        mock_response.candidates = [mock_candidate]
 
-    def test_parse_done_tool_sets_is_done(self, llm_client):
-        """Test that parsing 'done' tool sets is_done flag."""
-        text = '```json\n{"tool": "done", "arguments": {"summary": "Completed"}}\n```'
-        result = llm_client._parse_response(text)
-
-        assert result.is_done is True
-
-    def test_parse_no_tool_call(self, llm_client):
-        """Test parsing response with no tool call."""
-        text = "I'm thinking about what to do next..."
-        result = llm_client._parse_response(text)
+        result = llm_client._parse_native_response(mock_response)
 
         assert result.tool_call is None
         assert result.is_done is False
+        assert "thinking" in result.reasoning
 
-    def test_parse_malformed_json_fallback(self, llm_client):
-        """Test that malformed JSON falls back gracefully."""
-        text = '{"tool": "write_post", arguments: invalid}'
-        result = llm_client._parse_response(text)
+    def test_parse_done_tool_sets_is_done(self, llm_client):
+        """Test that parsing 'done' function call sets is_done flag."""
+        mock_function_call = Mock()
+        mock_function_call.name = "done"
+        mock_function_call.args = {"summary": "Task complete"}
 
-        # Should not crash, returns None tool_call
+        mock_part = Mock()
+        mock_part.function_call = mock_function_call
+        mock_part.text = None
+
+        mock_content = Mock()
+        mock_content.parts = [mock_part]
+
+        mock_candidate = Mock()
+        mock_candidate.content = mock_content
+
+        mock_response = Mock()
+        mock_response.candidates = [mock_candidate]
+
+        result = llm_client._parse_native_response(mock_response)
+
+        assert result.is_done is True
+        assert result.tool_call["name"] == "done"
+
+    def test_parse_empty_response(self, llm_client):
+        """Test parsing response with no candidates."""
+        mock_response = Mock()
+        mock_response.candidates = []
+
+        result = llm_client._parse_native_response(mock_response)
+
         assert result.tool_call is None
+        assert "No response" in result.reasoning
 
-    def test_parse_nested_json_in_post_text(self, llm_client):
-        """Test parsing JSON where post_text contains special characters."""
-        text = '''```json
-{"tool": "write_post", "arguments": {"post_text": "$NVDA up 10%! → Sell $950 call\\n#NVDA #NFA", "platform": "twitter"}}
-```'''
-        result = llm_client._parse_response(text)
+    def test_parse_response_preserves_raw_content(self, llm_client):
+        """Test that parsing preserves raw content for thought signatures."""
+        mock_part = Mock()
+        mock_part.function_call = None
+        mock_part.text = "Reasoning text"
+
+        mock_content = Mock()
+        mock_content.parts = [mock_part]
+
+        mock_candidate = Mock()
+        mock_candidate.content = mock_content
+
+        mock_response = Mock()
+        mock_response.candidates = [mock_candidate]
+
+        result = llm_client._parse_native_response(mock_response)
+
+        assert result.raw_content == mock_content
+
+    def test_parse_mixed_text_and_function_call(self, llm_client):
+        """Test parsing response with both text and function call parts."""
+        mock_text_part = Mock()
+        mock_text_part.function_call = None
+        mock_text_part.text = "Let me search for information."
+
+        mock_function_call = Mock()
+        mock_function_call.name = "get_market_news"
+        mock_function_call.args = {}
+
+        mock_fc_part = Mock()
+        mock_fc_part.function_call = mock_function_call
+        mock_fc_part.text = None
+
+        mock_content = Mock()
+        mock_content.parts = [mock_text_part, mock_fc_part]
+
+        mock_candidate = Mock()
+        mock_candidate.content = mock_content
+
+        mock_response = Mock()
+        mock_response.candidates = [mock_candidate]
+
+        result = llm_client._parse_native_response(mock_response)
 
         assert result.tool_call is not None
-        assert "$NVDA" in result.tool_call["arguments"]["post_text"]
-
-    def test_parse_inline_json_with_brace_matching(self, llm_client):
-        """Test inline JSON parsing with brace depth matching."""
-        text = 'I will execute {"tool": "query_alpha_copilot", "arguments": {"query": "Find options for NVDA"}} to get data.'
-        result = llm_client._parse_response(text)
-
-        assert result.tool_call is not None
-        assert result.tool_call["name"] == "query_alpha_copilot"
-        assert result.tool_call["arguments"]["query"] == "Find options for NVDA"
-
-    def test_parse_json_with_nested_objects(self, llm_client):
-        """Test parsing JSON with nested objects in arguments."""
-        text = '''```json
-{"tool": "complex_tool", "arguments": {"config": {"nested": "value"}, "simple": "arg"}}
-```'''
-        result = llm_client._parse_response(text)
-
-        assert result.tool_call is not None
-        assert result.tool_call["arguments"]["config"]["nested"] == "value"
+        assert result.tool_call["name"] == "get_market_news"
+        assert "search for information" in result.reasoning
 
 
 class TestLLMGroundingSources:
@@ -355,11 +391,13 @@ class TestAgentLoopIntegration:
 
     def test_agent_executes_done_tool_completes(self, mock_llm, mock_tools, mock_evaluator):
         """Test that agent completes when done tool is called."""
-        # Mock LLM to return done tool call
+        # Mock LLM to return done tool call with raw_content
+        mock_content = Mock()
         mock_llm.generate.return_value = LLMResponse(
             reasoning="Task complete",
             tool_call={"name": "done", "arguments": {"summary": "Posted successfully"}},
-            is_done=True
+            is_done=True,
+            raw_content=mock_content
         )
 
         agent = AgentLoop(mock_llm, mock_tools, mock_evaluator)
@@ -372,17 +410,21 @@ class TestAgentLoopIntegration:
         """Test that write_post triggers evaluation."""
         good_post = "$NVDA up 10%!\n→ Sell $950 call\n→ $12 premium\n→ 75% POP\n#NVDA #NFA"
 
-        # First call: write_post, second call: done
+        # First call: write_post, second call: done (both with raw_content)
+        mock_content1 = Mock()
+        mock_content2 = Mock()
         mock_llm.generate.side_effect = [
             LLMResponse(
                 reasoning="Writing post",
                 tool_call={"name": "write_post", "arguments": {"post_text": good_post, "platform": "twitter"}},
-                is_done=False
+                is_done=False,
+                raw_content=mock_content1
             ),
             LLMResponse(
                 reasoning="Done",
                 tool_call={"name": "done", "arguments": {"summary": "Posted"}},
-                is_done=True
+                is_done=True,
+                raw_content=mock_content2
             )
         ]
 
@@ -413,10 +455,12 @@ class TestAgentLoopIntegration:
         failing_evaluator.format_report.return_value = "FAIL: 15/75"
 
         bad_post = "AAPL $180 72% - this is a longer post to pass minimum length validation test"
+        mock_content = Mock()
         mock_llm.generate.return_value = LLMResponse(
             reasoning="Writing post",
             tool_call={"name": "write_post", "arguments": {"post_text": bad_post, "platform": "twitter"}},
-            is_done=False
+            is_done=False,
+            raw_content=mock_content
         )
 
         agent = AgentLoop(mock_llm, mock_tools, failing_evaluator)
@@ -426,11 +470,13 @@ class TestAgentLoopIntegration:
 
     def test_agent_respects_max_iterations(self, mock_llm, mock_tools, mock_evaluator):
         """Test that agent stops at max iterations."""
-        # Mock LLM to never return done
+        # Mock LLM to never return done (with raw_content)
+        mock_content = Mock()
         mock_llm.generate.return_value = LLMResponse(
             reasoning="Still thinking...",
             tool_call=None,
-            is_done=False
+            is_done=False,
+            raw_content=mock_content
         )
 
         agent = AgentLoop(mock_llm, mock_tools, mock_evaluator)
@@ -1000,10 +1046,12 @@ class TestAgentLoopErrors:
 
     def test_max_iterations_exact_boundary(self, mock_llm, mock_tools, mock_evaluator):
         """Test that agent stops at exactly max_iterations."""
+        mock_content = Mock()
         mock_llm.generate.return_value = LLMResponse(
             reasoning="Thinking...",
             tool_call=None,
-            is_done=False
+            is_done=False,
+            raw_content=mock_content
         )
 
         agent = AgentLoop(mock_llm, mock_tools, mock_evaluator)
@@ -1014,23 +1062,32 @@ class TestAgentLoopErrors:
         assert "MAX_ITERATIONS_REACHED" in result
         assert mock_llm.generate.call_count == 5
 
-    def test_tool_result_added_to_messages(self, mock_llm, mock_tools, mock_evaluator):
-        """Test that tool results are added to conversation history."""
+    def test_tool_result_added_to_contents(self, mock_llm, mock_tools, mock_evaluator):
+        """Test that tool results are added to conversation history as Content objects."""
         good_post = "$NVDA up 10%! Sell $950 call, $12 premium, 75% POP. #NVDA #NFA"
 
-        # First call: write_post, second call: done
-        mock_llm.generate.side_effect = [
-            LLMResponse(
-                reasoning="Writing post",
-                tool_call={"name": "write_post", "arguments": {"post_text": good_post, "platform": "twitter"}},
-                is_done=False
-            ),
-            LLMResponse(
-                reasoning="Done",
-                tool_call={"name": "done", "arguments": {"summary": "Posted"}},
-                is_done=True
-            )
-        ]
+        # Track contents length at each call
+        contents_lengths = []
+
+        def track_contents(contents, tools):
+            contents_lengths.append(len(contents))
+            # Return done on second call
+            if len(contents_lengths) == 1:
+                return LLMResponse(
+                    reasoning="Writing post",
+                    tool_call={"name": "write_post", "arguments": {"post_text": good_post, "platform": "twitter"}},
+                    is_done=False,
+                    raw_content=Mock()
+                )
+            else:
+                return LLMResponse(
+                    reasoning="Done",
+                    tool_call={"name": "done", "arguments": {"summary": "Posted"}},
+                    is_done=True,
+                    raw_content=Mock()
+                )
+
+        mock_llm.generate.side_effect = track_contents
 
         agent = AgentLoop(mock_llm, mock_tools, mock_evaluator)
         agent.run("Create a post")
@@ -1038,10 +1095,9 @@ class TestAgentLoopErrors:
         # Check that generate was called twice
         assert mock_llm.generate.call_count == 2
 
-        # The second call should include tool result from first call
-        second_call_messages = mock_llm.generate.call_args_list[1][0][0]  # First positional arg
-        tool_messages = [m for m in second_call_messages if m.get("role") == "tool"]
-        assert len(tool_messages) >= 1
+        # Verify contents grew between calls (tool result was added)
+        assert len(contents_lengths) == 2
+        assert contents_lengths[1] > contents_lengths[0], "Contents should grow after tool execution"
 
 
 class TestPlatformErrors:
