@@ -81,12 +81,11 @@ class LLMClient:
         # Convert tool schemas to Gemini function declarations
         function_declarations = self._convert_to_function_declarations(tools)
 
-        # Build tools list - include function calling tool
+        # Build tools list - function calling tool only
+        # NOTE: Gemini API does not support combining function calling with
+        # Google Search grounding in the same request. When using function
+        # calling, grounding must be disabled.
         gemini_tools = [types.Tool(function_declarations=function_declarations)]
-
-        # Add grounding tool if enabled
-        if self.grounding_tool:
-            gemini_tools.append(self.grounding_tool)
 
         # Configure generation with tools
         config = types.GenerateContentConfig(
