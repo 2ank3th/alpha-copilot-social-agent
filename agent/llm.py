@@ -1,10 +1,8 @@
-"""LLM client for the agent using google-genai package."""
+"""LLM client for the agent using google-genai package with native function calling."""
 
-import json
 import logging
-import re
 from typing import Dict, List, Any, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from google import genai
 from google.genai import types
@@ -23,13 +21,16 @@ class LLMResponse:
     tool_call: Optional[Dict[str, Any]] = None
     is_done: bool = False
     grounding_sources: Optional[List[str]] = None
+    # Store the raw response for conversation history (preserves thought signatures)
+    raw_content: Optional[Any] = field(default=None, repr=False)
 
 
 class LLMClient:
-    """Client for interacting with Gemini LLM with Google Search grounding.
+    """Client for interacting with Gemini LLM with native function calling.
 
-    Uses the google-genai package (not the deprecated google-generativeai).
-    Raises exceptions on failure - no silent fallbacks.
+    Uses the google-genai package with native function calling API.
+    This approach is more reliable than JSON-in-prompt parsing and
+    properly handles Gemini 3's thought signatures.
     """
 
     def __init__(self, enable_grounding: bool = True):
@@ -61,14 +62,14 @@ class LLMClient:
 
     def generate(
         self,
-        messages: List[Dict[str, str]],
+        contents: List[Any],
         tools: List[Dict[str, Any]]
     ) -> LLMResponse:
         """
-        Generate a response with tool calling via structured output.
+        Generate a response using native Gemini function calling.
 
         Args:
-            messages: Conversation history
+            contents: Conversation history (Gemini Content objects or dicts)
             tools: Available tool schemas
 
         Returns:
@@ -77,37 +78,39 @@ class LLMClient:
         Raises:
             Exception: If LLM generation fails
         """
-        # Build prompt with tool instructions
-        prompt = self._build_prompt_with_tools(messages, tools)
+        # Convert tool schemas to Gemini function declarations
+        function_declarations = self._convert_to_function_declarations(tools)
 
-        # Configure generation
+        # Build tools list - function calling tool only
+        # NOTE: Gemini API does not support combining function calling with
+        # Google Search grounding in the same request. When using function
+        # calling, grounding must be disabled.
+        gemini_tools = [types.Tool(function_declarations=function_declarations)]
+
+        # Configure generation with tools
         config = types.GenerateContentConfig(
             temperature=0.7,
-            max_output_tokens=2048,  # Increased to avoid truncation on long posts
+            max_output_tokens=2048,
+            tools=gemini_tools,
         )
 
         def _do_generate():
             """Inner function for retry wrapper."""
             response = self.client.models.generate_content(
                 model=self.model_name,
-                contents=prompt,
+                contents=contents,
                 config=config,
             )
 
-            # Extract text from response
-            response_text = response.text if hasattr(response, 'text') and response.text else str(response)
-
-            # Ensure response_text is a string
-            if not isinstance(response_text, str):
-                response_text = str(response_text)
+            # Parse the response to extract function call or text
+            parsed = self._parse_native_response(response)
 
             # Extract grounding sources if available
             grounding_sources = self._extract_grounding_sources(response)
             if grounding_sources:
                 logger.info(f"Grounding sources used: {len(grounding_sources)}")
-
-            parsed = self._parse_response(response_text)
             parsed.grounding_sources = grounding_sources
+
             return parsed
 
         # Use retry utility for transient server errors
@@ -117,139 +120,76 @@ class LLMClient:
             operation_name="Gemini LLM generation",
         )
 
-    def _build_prompt_with_tools(
+    def _convert_to_function_declarations(
         self,
-        messages: List[Dict[str, str]],
         tools: List[Dict[str, Any]]
-    ) -> str:
-        """Build prompt with tool descriptions and calling format."""
-        parts = []
-
-        # Add system message first
-        for msg in messages:
-            if msg["role"] == "system":
-                parts.append(msg["content"])
-                break
-
-        # Add tool instructions
-        parts.append("\n## Tool Calling Format\n")
-        parts.append("To call a tool, respond with JSON in this exact format:")
-        parts.append("```json")
-        parts.append('{"tool": "tool_name", "arguments": {"arg1": "value1"}}')
-        parts.append("```")
-        parts.append("\nAvailable tools:\n")
+    ) -> List[types.FunctionDeclaration]:
+        """Convert tool schemas to Gemini FunctionDeclaration format."""
+        declarations = []
 
         for tool in tools:
-            name = tool["name"]
-            desc = tool["description"]
-            params = tool.get("parameters", {}).get("properties", {})
-            required = tool.get("parameters", {}).get("required", [])
+            # Extract parameters schema
+            params = tool.get("parameters", {})
 
-            param_strs = []
-            for pname, pinfo in params.items():
-                req = "(required)" if pname in required else "(optional)"
-                ptype = pinfo.get("type", "string")
-                pdesc = pinfo.get("description", "")
-                param_strs.append(f"    - {pname} ({ptype}) {req}: {pdesc}")
+            declaration = types.FunctionDeclaration(
+                name=tool["name"],
+                description=tool["description"],
+                parameters=params if params else None,
+            )
+            declarations.append(declaration)
 
-            parts.append(f"- **{name}**: {desc}")
-            if param_strs:
-                parts.append("  Parameters:")
-                parts.extend(param_strs)
-            parts.append("")
+        return declarations
 
-        parts.append("\nIMPORTANT: Always respond with a tool call JSON block. Do not just describe what you would do.")
-        parts.append("\n---\n")
+    def _parse_native_response(self, response) -> LLMResponse:
+        """Parse native Gemini response to extract function call or text."""
+        reasoning = ""
+        tool_call = None
+        raw_content = None
 
-        # Add conversation history
-        for msg in messages:
-            role = msg["role"]
-            content = msg["content"]
+        try:
+            # Get the first candidate
+            if not response.candidates:
+                return LLMResponse(reasoning="No response generated", raw_content=None)
 
-            if role == "system":
-                continue  # Already added
-            elif role == "user":
-                parts.append(f"USER: {content}\n")
-            elif role == "assistant":
-                parts.append(f"ASSISTANT: {content}\n")
-            elif role == "tool":
-                parts.append(f"TOOL RESULT:\n{content}\n")
+            candidate = response.candidates[0]
+            raw_content = candidate.content
 
-        parts.append("\nASSISTANT: ")
+            # Iterate through parts to find function calls and text
+            if candidate.content and candidate.content.parts:
+                for part in candidate.content.parts:
+                    # Check for function call
+                    if hasattr(part, 'function_call') and part.function_call:
+                        fc = part.function_call
+                        tool_call = {
+                            "name": fc.name,
+                            "arguments": dict(fc.args) if fc.args else {}
+                        }
+                        logger.info(f"Function call detected: {fc.name}")
 
-        return "\n".join(parts)
+                    # Check for text content
+                    if hasattr(part, 'text') and part.text:
+                        reasoning += part.text
 
-    def _parse_response(self, text: str) -> LLMResponse:
-        """Parse LLM response to extract tool call."""
-        # Look for JSON block with triple backticks
-        json_match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
+            # If no text reasoning, use a default
+            if not reasoning:
+                if tool_call:
+                    reasoning = f"Calling {tool_call['name']}"
+                else:
+                    reasoning = "Processing..."
 
-        # Also try without backticks: "json\n{...}" format
-        if not json_match:
-            json_match = re.search(r'^json\s*(\{.*?\})\s*$', text, re.DOTALL | re.MULTILINE)
-
-        # Also try to match just "json" on one line followed by JSON on next lines
-        if not json_match:
-            json_match = re.search(r'\bjson\b\s*(\{"tool".*?\})\s*(?:```|$)', text, re.DOTALL)
-
-        if json_match:
+        except Exception as e:
+            logger.error(f"Error parsing response: {e}")
+            # Try to get text as fallback
             try:
-                data = json.loads(json_match.group(1))
-                tool_name = data.get("tool")
-                arguments = data.get("arguments", {})
+                reasoning = response.text if hasattr(response, 'text') else str(response)
+            except Exception:
+                reasoning = "Error parsing response"
 
-                if tool_name:
-                    return LLMResponse(
-                        reasoning=text,
-                        tool_call={
-                            "name": tool_name,
-                            "arguments": arguments
-                        },
-                        is_done=(tool_name == "done")
-                    )
-            except json.JSONDecodeError:
-                pass
-
-        # Try to find inline JSON
-        json_patterns = [
-            r'\{"tool":\s*"([^"]+)".*?\}',
-            r'\{\s*"tool"\s*:\s*"([^"]+)"',
-        ]
-
-        for pattern in json_patterns:
-            match = re.search(pattern, text)
-            if match:
-                # Try to extract the full JSON
-                try:
-                    # Find the start of the JSON
-                    start = text.find('{"tool"')
-                    if start >= 0:
-                        # Find matching closing brace
-                        depth = 0
-                        for i, c in enumerate(text[start:]):
-                            if c == '{':
-                                depth += 1
-                            elif c == '}':
-                                depth -= 1
-                                if depth == 0:
-                                    json_str = text[start:start + i + 1]
-                                    data = json.loads(json_str)
-                                    return LLMResponse(
-                                        reasoning=text,
-                                        tool_call={
-                                            "name": data.get("tool"),
-                                            "arguments": data.get("arguments", {})
-                                        },
-                                        is_done=(data.get("tool") == "done")
-                                    )
-                except (json.JSONDecodeError, ValueError):
-                    pass
-
-        # No tool call found
         return LLMResponse(
-            reasoning=text,
-            tool_call=None,
-            is_done=False
+            reasoning=reasoning,
+            tool_call=tool_call,
+            is_done=(tool_call["name"] == "done" if tool_call else False),
+            raw_content=raw_content,
         )
 
     def _extract_grounding_sources(self, response) -> Optional[List[str]]:
