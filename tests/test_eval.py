@@ -117,3 +117,205 @@ class TestQualityScore:
         score = evaluator._score_quality_heuristic(post)
 
         assert 5 <= score.total <= 50  # 5 metrics, each 1-10
+
+
+class TestEvaluationThresholds:
+    """Tests for evaluation threshold boundaries."""
+
+    def setup_method(self):
+        """Set up test fixtures with known thresholds."""
+        self.evaluator = PostEvaluator()
+
+    def test_threshold_exact_pass_total(self):
+        """Test that a post at exactly the total threshold passes."""
+        from unittest.mock import patch
+        from agent.config import Config
+
+        # Use override to set known thresholds
+        with Config.override(EVAL_TOTAL_MIN=45, EVAL_HOOKINESS_MIN=15, EVAL_QUALITY_MIN=30, EVAL_MODE="both"):
+            evaluator = PostEvaluator()
+
+            # Manually test the threshold check with exact value
+            passed, reason = evaluator._check_thresholds(15, 30, 45)
+            assert passed is True
+            assert reason == ""
+
+    def test_threshold_exact_fail_total(self):
+        """Test that a post below the total threshold fails."""
+        from unittest.mock import patch
+        from agent.config import Config
+
+        with Config.override(EVAL_TOTAL_MIN=45, EVAL_HOOKINESS_MIN=15, EVAL_QUALITY_MIN=30, EVAL_MODE="both"):
+            evaluator = PostEvaluator()
+
+            # One below threshold
+            passed, reason = evaluator._check_thresholds(14, 30, 44)
+            assert passed is False
+            assert "too low" in reason.lower()
+
+    def test_hookiness_minimum_score(self):
+        """Test hookiness scores at minimum (all 1s)."""
+        # A post with nothing interesting should score low
+        minimal_post = "zzz"
+
+        score = self.evaluator._score_hookiness_heuristic(minimal_post)
+
+        # Each metric should be at least 1
+        assert score.news_hook >= 1
+        assert score.specificity >= 1
+        assert score.urgency >= 1
+        assert score.human_voice >= 1
+        assert score.scroll_stop >= 1
+        assert score.total >= 5  # Minimum possible
+
+    def test_quality_minimum_score(self):
+        """Test quality scores at minimum."""
+        minimal_post = "zzz"
+
+        score = self.evaluator._score_quality_heuristic(minimal_post)
+
+        # Each metric should be at least 1
+        assert score.thesis_clarity >= 1
+        assert score.news_driven >= 1
+        assert score.actionable >= 0  # Can be 0 if no trade details
+        assert score.engagement >= 1
+        assert score.originality >= 1
+        assert score.total >= 5  # Minimum possible
+
+    def test_hookiness_only_mode(self):
+        """Test evaluation in hookiness-only mode."""
+        from agent.config import Config
+
+        with Config.override(EVAL_MODE="hookiness", EVAL_HOOKINESS_MIN=15, EVAL_QUALITY_MIN=0, EVAL_TOTAL_MIN=0):
+            evaluator = PostEvaluator()
+
+            # Pass hookiness but fail quality
+            passed, reason = evaluator._check_thresholds(20, 10, 30)
+            assert passed is True  # Should pass because quality isn't checked
+
+    def test_quality_only_mode(self):
+        """Test evaluation in quality-only mode."""
+        from agent.config import Config
+
+        with Config.override(EVAL_MODE="quality", EVAL_HOOKINESS_MIN=0, EVAL_QUALITY_MIN=30, EVAL_TOTAL_MIN=0):
+            evaluator = PostEvaluator()
+
+            # Pass quality but fail hookiness
+            passed, reason = evaluator._check_thresholds(10, 35, 45)
+            assert passed is True  # Should pass because hookiness isn't checked
+
+    def test_both_mode_requires_all(self):
+        """Test that 'both' mode requires meeting all thresholds."""
+        from agent.config import Config
+
+        with Config.override(EVAL_MODE="both", EVAL_HOOKINESS_MIN=15, EVAL_QUALITY_MIN=30, EVAL_TOTAL_MIN=45):
+            evaluator = PostEvaluator()
+
+            # Pass total but fail hookiness
+            passed, reason = evaluator._check_thresholds(10, 35, 45)
+            assert passed is False
+            assert "Hookiness" in reason
+
+
+class TestEvaluationEdgeCases:
+    """Tests for evaluation edge cases."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.evaluator = PostEvaluator()
+
+    def test_empty_post(self):
+        """Test evaluation handles empty string."""
+        result = self.evaluator.evaluate("")
+
+        assert isinstance(result, UnifiedScore)
+        # Should score very low but not crash
+        assert result.total >= 10  # Minimum possible
+
+    def test_very_short_post(self):
+        """Test evaluation handles very short posts."""
+        result = self.evaluator.evaluate("Hi")
+
+        assert isinstance(result, UnifiedScore)
+        assert result.passed is False  # Too short to be useful
+
+    def test_emoji_only_post(self):
+        """Test evaluation handles emoji-only posts."""
+        result = self.evaluator.evaluate("📈🚀💰")
+
+        assert isinstance(result, UnifiedScore)
+        # Emojis should contribute to scroll_stop but low otherwise
+        assert result.hookiness.scroll_stop >= 1
+
+    def test_unicode_characters(self):
+        """Test evaluation handles unicode/special characters."""
+        unicode_post = "$NVDA up 10%! 🚀→ Sell $950 call • Premium: $12 • POP: 75%"
+
+        result = self.evaluator.evaluate(unicode_post)
+
+        assert isinstance(result, UnifiedScore)
+        # Should score well despite unicode
+        assert result.hookiness.specificity >= 3  # Has numbers
+
+    def test_very_long_post(self):
+        """Test evaluation handles very long posts."""
+        long_post = """$NVDA (Nvidia) just hit all-time highs on AI chip demand surge!
+
+Here's how to profit from this momentum:
+→ Sell the $950 call (Jan 17 expiry)
+→ Collect ~$12 premium per contract
+→ ~75% probability of profit
+
+This trade benefits from high implied volatility.
+The breakeven is $962, giving you 5% upside buffer.
+
+Risk management is key - position size appropriately!
+
+#NVDA #options #theta #income #NFA
+
+This is not financial advice. Do your own research."""
+
+        result = self.evaluator.evaluate(long_post)
+
+        assert isinstance(result, UnifiedScore)
+        # Long structured post should score well
+        assert result.total >= 30
+
+    def test_template_post_penalized(self):
+        """Test that template-style posts get penalized."""
+        template_post = "AAPL | $180 Strike | $3.50 Premium | 72% POP | Jan 17"
+        human_post = "Here's how to profit from AAPL: sell the $180 call for $3.50 premium"
+
+        template_score = self.evaluator.evaluate(template_post)
+        human_score = self.evaluator.evaluate(human_post)
+
+        # Template should be penalized on originality
+        assert human_score.quality.originality >= template_score.quality.originality
+
+    def test_post_with_only_numbers(self):
+        """Test evaluation of post with just numbers."""
+        numbers_post = "$950 $12 75% $1000 10% 100"
+
+        result = self.evaluator.evaluate(numbers_post)
+
+        assert isinstance(result, UnifiedScore)
+        # Should score reasonably on specificity (has numbers)
+        assert result.hookiness.specificity >= 2
+
+    def test_post_with_question(self):
+        """Test that posts with questions get engagement boost."""
+        question_post = "Is NVDA a good buy here? $950 call looks tempting..."
+        statement_post = "NVDA $950 call looks tempting."
+
+        q_score = self.evaluator.evaluate(question_post)
+        s_score = self.evaluator.evaluate(statement_post)
+
+        # Question should boost originality
+        assert q_score.quality.originality >= s_score.quality.originality
+
+    def test_post_preserves_original_text(self):
+        """Test that hookiness score preserves original post text."""
+        post = "Original post text here"
+        score = self.evaluator._score_hookiness_heuristic(post)
+
+        assert score.post == post

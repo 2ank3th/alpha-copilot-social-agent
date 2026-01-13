@@ -674,3 +674,421 @@ class TestConfigOverride:
             assert Config.MAX_ITERATIONS == 5
 
         assert Config.MAX_ITERATIONS == original
+
+
+class TestConfigValidation:
+    """Test Config validation methods."""
+
+    def test_validate_llm_with_key(self):
+        """Test validate_llm passes with API key."""
+        with patch.object(Config, 'GEMINI_API_KEY', 'test-key'):
+            assert Config.validate_llm() is True
+
+    def test_validate_llm_missing_key(self):
+        """Test validate_llm fails without API key."""
+        with patch.object(Config, 'GEMINI_API_KEY', ''):
+            assert Config.validate_llm() is False
+
+    def test_validate_alpha_copilot_with_api_key(self):
+        """Test validate_alpha_copilot passes with API key."""
+        with patch.object(Config, 'ALPHA_COPILOT_API_KEY', 'test-key'):
+            assert Config.validate_alpha_copilot() is True
+
+    def test_validate_alpha_copilot_with_supabase(self):
+        """Test validate_alpha_copilot passes with Supabase credentials."""
+        with patch.object(Config, 'ALPHA_COPILOT_API_KEY', ''):
+            with patch.object(Config, 'SUPABASE_URL', 'https://test.supabase.co'):
+                with patch.object(Config, 'SUPABASE_ANON_KEY', 'anon-key'):
+                    with patch.object(Config, 'SUPABASE_EMAIL', 'test@example.com'):
+                        with patch.object(Config, 'SUPABASE_PASSWORD', 'password'):
+                            assert Config.validate_alpha_copilot() is True
+
+    def test_validate_alpha_copilot_none(self):
+        """Test validate_alpha_copilot fails with no credentials."""
+        with patch.object(Config, 'ALPHA_COPILOT_API_KEY', ''):
+            with patch.object(Config, 'SUPABASE_URL', ''):
+                with patch.object(Config, 'SUPABASE_ANON_KEY', ''):
+                    with patch.object(Config, 'SUPABASE_EMAIL', ''):
+                        with patch.object(Config, 'SUPABASE_PASSWORD', ''):
+                            assert Config.validate_alpha_copilot() is False
+
+    def test_validate_supabase_complete(self):
+        """Test validate_supabase passes with all credentials."""
+        with patch.object(Config, 'SUPABASE_URL', 'https://test.supabase.co'):
+            with patch.object(Config, 'SUPABASE_ANON_KEY', 'anon-key'):
+                with patch.object(Config, 'SUPABASE_EMAIL', 'test@example.com'):
+                    with patch.object(Config, 'SUPABASE_PASSWORD', 'password'):
+                        assert Config.validate_supabase() is True
+
+    def test_validate_supabase_partial(self):
+        """Test validate_supabase fails with partial credentials."""
+        with patch.object(Config, 'SUPABASE_URL', 'https://test.supabase.co'):
+            with patch.object(Config, 'SUPABASE_ANON_KEY', ''):  # Missing
+                with patch.object(Config, 'SUPABASE_EMAIL', 'test@example.com'):
+                    with patch.object(Config, 'SUPABASE_PASSWORD', 'password'):
+                        assert Config.validate_supabase() is False
+
+    def test_validate_twitter_complete(self):
+        """Test validate_twitter passes with all credentials."""
+        with patch.object(Config, 'TWITTER_API_KEY', 'key'):
+            with patch.object(Config, 'TWITTER_API_SECRET', 'secret'):
+                with patch.object(Config, 'TWITTER_ACCESS_TOKEN', 'token'):
+                    with patch.object(Config, 'TWITTER_ACCESS_SECRET', 'secret'):
+                        assert Config.validate_twitter() is True
+
+    def test_validate_twitter_partial(self):
+        """Test validate_twitter fails with partial credentials."""
+        with patch.object(Config, 'TWITTER_API_KEY', 'key'):
+            with patch.object(Config, 'TWITTER_API_SECRET', ''):  # Missing
+                with patch.object(Config, 'TWITTER_ACCESS_TOKEN', 'token'):
+                    with patch.object(Config, 'TWITTER_ACCESS_SECRET', 'secret'):
+                        assert Config.validate_twitter() is False
+
+    def test_validate_threads_complete(self):
+        """Test validate_threads passes with all credentials."""
+        with patch.object(Config, 'THREADS_ACCESS_TOKEN', 'token'):
+            with patch.object(Config, 'THREADS_USER_ID', 'user-id'):
+                assert Config.validate_threads() is True
+
+    def test_validate_threads_partial(self):
+        """Test validate_threads fails with partial credentials."""
+        with patch.object(Config, 'THREADS_ACCESS_TOKEN', 'token'):
+            with patch.object(Config, 'THREADS_USER_ID', ''):  # Missing
+                assert Config.validate_threads() is False
+
+    def test_get_enabled_platforms_both(self):
+        """Test get_enabled_platforms returns both when configured."""
+        with patch.object(Config, 'TWITTER_API_KEY', 'key'):
+            with patch.object(Config, 'TWITTER_API_SECRET', 'secret'):
+                with patch.object(Config, 'TWITTER_ACCESS_TOKEN', 'token'):
+                    with patch.object(Config, 'TWITTER_ACCESS_SECRET', 'secret'):
+                        with patch.object(Config, 'THREADS_ACCESS_TOKEN', 'token'):
+                            with patch.object(Config, 'THREADS_USER_ID', 'user-id'):
+                                platforms = Config.get_enabled_platforms()
+                                assert "twitter" in platforms
+                                assert "threads" in platforms
+
+    def test_get_enabled_platforms_twitter_only(self):
+        """Test get_enabled_platforms returns only Twitter."""
+        with patch.object(Config, 'TWITTER_API_KEY', 'key'):
+            with patch.object(Config, 'TWITTER_API_SECRET', 'secret'):
+                with patch.object(Config, 'TWITTER_ACCESS_TOKEN', 'token'):
+                    with patch.object(Config, 'TWITTER_ACCESS_SECRET', 'secret'):
+                        with patch.object(Config, 'THREADS_ACCESS_TOKEN', ''):
+                            with patch.object(Config, 'THREADS_USER_ID', ''):
+                                platforms = Config.get_enabled_platforms()
+                                assert "twitter" in platforms
+                                assert "threads" not in platforms
+
+    def test_get_enabled_platforms_none(self):
+        """Test get_enabled_platforms returns empty when none configured."""
+        with patch.object(Config, 'TWITTER_API_KEY', ''):
+            with patch.object(Config, 'TWITTER_API_SECRET', ''):
+                with patch.object(Config, 'TWITTER_ACCESS_TOKEN', ''):
+                    with patch.object(Config, 'TWITTER_ACCESS_SECRET', ''):
+                        with patch.object(Config, 'THREADS_ACCESS_TOKEN', ''):
+                            with patch.object(Config, 'THREADS_USER_ID', ''):
+                                platforms = Config.get_enabled_platforms()
+                                assert platforms == []
+
+
+class TestCrossPostTool:
+    """Test CrossPostTool cross-posting functionality."""
+
+    def test_cross_post_both_platforms_dry_run(self):
+        """Test cross-posting to both platforms in dry-run mode."""
+        from tools.publish import CrossPostTool
+
+        with patch.object(Config, 'DRY_RUN', True):
+            tool = CrossPostTool()
+            result = tool.execute("Test content for cross-posting", include_promo=False)
+
+            assert "CROSS_POST_RESULTS" in result
+            assert "twitter" in result.lower()
+            assert "threads" in result.lower()
+            assert "DRY_RUN" in result
+
+    def test_cross_post_with_promo_dry_run(self):
+        """Test cross-posting with promotional follow-up in dry-run mode."""
+        from tools.publish import CrossPostTool
+
+        with patch.object(Config, 'DRY_RUN', True):
+            with patch.object(Config, 'ENABLE_PROMO_POST', True):
+                tool = CrossPostTool()
+                result = tool.execute("Test content", include_promo=True)
+
+                assert "CROSS_POST_RESULTS" in result
+                assert "promo" in result.lower()
+
+    def test_cross_post_content_formatting(self):
+        """Test content is formatted for platform limits."""
+        from tools.publish import CrossPostTool
+
+        with patch.object(Config, 'DRY_RUN', True):
+            tool = CrossPostTool()
+
+            # Long content that exceeds Twitter limit
+            long_content = "x" * 300
+            result = tool.execute(long_content, include_promo=False)
+
+            # Should still succeed in dry-run mode
+            assert "CROSS_POST_RESULTS" in result
+
+    def test_cross_post_uses_config_for_promo_default(self):
+        """Test that include_promo defaults to Config.ENABLE_PROMO_POST."""
+        from tools.publish import CrossPostTool
+
+        with patch.object(Config, 'DRY_RUN', True):
+            with patch.object(Config, 'ENABLE_PROMO_POST', False):
+                tool = CrossPostTool()
+                result = tool.execute("Test content")
+
+                # Promo should not be attempted when disabled by default
+                # Result should not mention promo success
+                assert "CROSS_POST_RESULTS" in result
+
+
+class TestAlphaCopilotTool:
+    """Test Alpha Copilot tool integration."""
+
+    def test_tool_schema(self):
+        """Test Alpha Copilot tool has correct schema."""
+        from tools.alpha_copilot import QueryAlphaCopilotTool
+
+        with patch.object(Config, 'ALPHA_COPILOT_API_KEY', 'test-key'):
+            with patch('tools.alpha_copilot.httpx.Client'):
+                tool = QueryAlphaCopilotTool()
+                schema = tool.get_schema()
+
+                assert schema["name"] == "query_alpha_copilot"
+                assert "query" in schema["parameters"]["properties"]
+                assert "query" in schema["parameters"]["required"]
+
+    def test_execute_returns_error_without_auth(self):
+        """Test execute returns error without authentication."""
+        from tools.alpha_copilot import QueryAlphaCopilotTool
+
+        with patch.object(Config, 'ALPHA_COPILOT_API_KEY', ''):
+            with patch.object(Config, 'SUPABASE_URL', ''):
+                with patch.object(Config, 'SUPABASE_ANON_KEY', ''):
+                    with patch.object(Config, 'SUPABASE_EMAIL', ''):
+                        with patch.object(Config, 'SUPABASE_PASSWORD', ''):
+                            with patch('tools.alpha_copilot.httpx.Client'):
+                                tool = QueryAlphaCopilotTool()
+                                result = tool.execute("Find options for NVDA")
+
+                                assert "ERROR" in result
+
+    @patch('tools.alpha_copilot.httpx.Client')
+    def test_execute_with_api_key(self, mock_client_class):
+        """Test execute uses API key authentication."""
+        from tools.alpha_copilot import QueryAlphaCopilotTool
+
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "status": "success",
+            "analysis": {
+                "market_overview": "Bullish sentiment",
+                "recommendations": [
+                    {
+                        "symbol": "NVDA",
+                        "strategy": "Covered Call",
+                        "strike": 950,
+                        "premium": 12,
+                        "probability_of_profit": 75,
+                        "expiration": "Jan 17",
+                        "rationale": "Strong momentum"
+                    }
+                ]
+            }
+        }
+        mock_response.raise_for_status = Mock()
+        mock_client.post.return_value = mock_response
+
+        with patch.object(Config, 'ALPHA_COPILOT_API_KEY', 'test-api-key'):
+            with patch.object(Config, 'ALPHA_COPILOT_API_URL', 'https://api.test.com'):
+                tool = QueryAlphaCopilotTool()
+                result = tool.execute("Find covered calls for NVDA")
+
+                assert "NVDA" in result
+                assert "Covered Call" in result
+                assert "STATUS: success" in result
+
+    @patch('tools.alpha_copilot.httpx.Client')
+    def test_execute_handles_no_recommendations(self, mock_client_class):
+        """Test execute handles empty recommendations."""
+        from tools.alpha_copilot import QueryAlphaCopilotTool
+
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "status": "success",
+            "analysis": {
+                "market_overview": "No good trades",
+                "recommendations": []
+            }
+        }
+        mock_response.raise_for_status = Mock()
+        mock_client.post.return_value = mock_response
+
+        with patch.object(Config, 'ALPHA_COPILOT_API_KEY', 'test-api-key'):
+            tool = QueryAlphaCopilotTool()
+            result = tool.execute("Find options")
+
+            assert "NO_RECOMMENDATIONS" in result
+
+    @patch('tools.alpha_copilot.httpx.Client')
+    def test_execute_handles_timeout(self, mock_client_class):
+        """Test execute handles timeout gracefully."""
+        from tools.alpha_copilot import QueryAlphaCopilotTool
+        import httpx
+
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+        mock_client.post.side_effect = httpx.TimeoutException("Timeout")
+
+        with patch.object(Config, 'ALPHA_COPILOT_API_KEY', 'test-api-key'):
+            tool = QueryAlphaCopilotTool()
+            result = tool.execute("Find options")
+
+            assert "ERROR" in result
+            assert "timed out" in result.lower()
+
+
+class TestAgentLoopErrors:
+    """Test agent loop error handling paths."""
+
+    @pytest.fixture
+    def mock_llm(self):
+        """Create a mock LLM client."""
+        return Mock(spec=LLMClient)
+
+    @pytest.fixture
+    def mock_tools(self):
+        """Create a mock tool registry."""
+        registry = ToolRegistry()
+        registry.register(WritePostTool())
+        registry.register(DoneTool())
+        return registry
+
+    @pytest.fixture
+    def mock_evaluator(self):
+        """Create a mock evaluator that always passes."""
+        evaluator = Mock(spec=PostEvaluator)
+        evaluator.evaluate.return_value = UnifiedScore(
+            hookiness=HookinessScore(
+                post="test", news_hook=4, specificity=4, urgency=3,
+                human_voice=4, scroll_stop=4, total=19, reasoning="Good"
+            ),
+            quality=QualityScore(
+                thesis_clarity=8, news_driven=7, actionable=8,
+                engagement=7, originality=6, total=36, reasoning="Good"
+            ),
+            total=55,
+            passed=True,
+            failure_reason=""
+        )
+        evaluator.format_report.return_value = "PASS: 55/75"
+        return evaluator
+
+    def test_max_iterations_exact_boundary(self, mock_llm, mock_tools, mock_evaluator):
+        """Test that agent stops at exactly max_iterations."""
+        mock_llm.generate.return_value = LLMResponse(
+            reasoning="Thinking...",
+            tool_call=None,
+            is_done=False
+        )
+
+        agent = AgentLoop(mock_llm, mock_tools, mock_evaluator)
+        agent.max_iterations = 5
+
+        result = agent.run("Test task")
+
+        assert "MAX_ITERATIONS_REACHED" in result
+        assert mock_llm.generate.call_count == 5
+
+    def test_tool_result_added_to_messages(self, mock_llm, mock_tools, mock_evaluator):
+        """Test that tool results are added to conversation history."""
+        good_post = "$NVDA up 10%! Sell $950 call, $12 premium, 75% POP. #NVDA #NFA"
+
+        # First call: write_post, second call: done
+        mock_llm.generate.side_effect = [
+            LLMResponse(
+                reasoning="Writing post",
+                tool_call={"name": "write_post", "arguments": {"post_text": good_post, "platform": "twitter"}},
+                is_done=False
+            ),
+            LLMResponse(
+                reasoning="Done",
+                tool_call={"name": "done", "arguments": {"summary": "Posted"}},
+                is_done=True
+            )
+        ]
+
+        agent = AgentLoop(mock_llm, mock_tools, mock_evaluator)
+        agent.run("Create a post")
+
+        # Check that generate was called twice
+        assert mock_llm.generate.call_count == 2
+
+        # The second call should include tool result from first call
+        second_call_messages = mock_llm.generate.call_args_list[1][0][0]  # First positional arg
+        tool_messages = [m for m in second_call_messages if m.get("role") == "tool"]
+        assert len(tool_messages) >= 1
+
+
+class TestPlatformErrors:
+    """Test platform error handling."""
+
+    def test_twitter_returns_error_without_client(self):
+        """Test Twitter publish returns error without client."""
+        with patch.object(Config, 'DRY_RUN', False):
+            with patch.object(Config, 'TWITTER_API_KEY', ''):
+                with patch.object(Config, 'TWITTER_API_SECRET', ''):
+                    with patch.object(Config, 'TWITTER_ACCESS_TOKEN', ''):
+                        with patch.object(Config, 'TWITTER_ACCESS_SECRET', ''):
+                            platform = TwitterPlatform()
+                            result = platform.publish("Test content")
+
+                            assert result["success"] is False
+                            assert "error" in result
+
+    def test_threads_returns_error_without_credentials(self):
+        """Test Threads publish returns error without credentials."""
+        with patch.object(Config, 'DRY_RUN', False):
+            with patch.object(Config, 'THREADS_ACCESS_TOKEN', ''):
+                with patch.object(Config, 'THREADS_USER_ID', ''):
+                    platform = ThreadsPlatform()
+                    result = platform.publish("Test content")
+
+                    assert result["success"] is False
+                    assert "error" in result
+
+    def test_publish_tool_handles_unsupported_platform(self):
+        """Test PublishTool returns error for unsupported platform."""
+        tool = PublishTool()
+        result = tool.execute("Test content", "unsupported_platform")
+
+        assert "ERROR" in result
+        assert "not supported" in result.lower()
+
+    def test_get_platform_status_returns_unavailable(self):
+        """Test GetPlatformStatusTool returns unavailable for unconfigured platform."""
+        from tools.publish import GetPlatformStatusTool
+
+        with patch.object(Config, 'DRY_RUN', False):
+            with patch.object(Config, 'TWITTER_API_KEY', ''):
+                with patch.object(Config, 'TWITTER_API_SECRET', ''):
+                    with patch.object(Config, 'TWITTER_ACCESS_TOKEN', ''):
+                        with patch.object(Config, 'TWITTER_ACCESS_SECRET', ''):
+                            tool = GetPlatformStatusTool()
+                            result = tool.execute("twitter")
+
+                            assert "UNAVAILABLE" in result
