@@ -46,7 +46,7 @@ class Config:
     # Alpha Copilot Promotional Settings
     ALPHA_COPILOT_URL: str = os.getenv(
         "ALPHA_COPILOT_URL",
-        "https://alphacopilot.ai"
+        "https://alphacopilot.app"
     )
     ENABLE_PROMO_POST: bool = os.getenv("ENABLE_PROMO_POST", "true").lower() == "true"
 

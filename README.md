@@ -97,7 +97,7 @@ python -m agent.main --task "Post a bullish play for NVDA"
 | `TWITTER_ACCESS_SECRET` | Twitter access secret | For Twitter |
 | `THREADS_ACCESS_TOKEN` | Meta Threads access token | For Threads |
 | `THREADS_USER_ID` | Meta Threads user ID | For Threads |
-| `ALPHA_COPILOT_URL` | URL for promo posts | No (default: alphacopilot.ai) |
+| `ALPHA_COPILOT_URL` | URL for promo posts | No (default: alphacopilot.app) |
 | `ENABLE_PROMO_POST` | Enable promo follow-ups | No (default: true) |
 | `DRY_RUN` | Set to `true` to skip actual posting | No |
 

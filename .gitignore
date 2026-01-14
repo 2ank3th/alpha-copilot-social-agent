@@ -70,3 +70,4 @@ Thumbs.db
 # Project specific
 *.log
 eval_results_*.json
+gen-lang-client-*.json
