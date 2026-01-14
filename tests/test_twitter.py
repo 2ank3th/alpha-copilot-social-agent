@@ -187,11 +187,14 @@ class TestTwitterPublish:
 
 
 class TestTwitterGetRecentPosts:
-    """Tests for TwitterPlatform.get_recent_posts() method."""
+    """Tests for TwitterPlatform.get_recent_posts() method.
+
+    Note: Read access is disabled - get_recent_posts always returns empty list.
+    """
 
     @patch("platforms.twitter.Config")
-    def test_get_recent_posts_without_client(self, mock_config):
-        """Test get_recent_posts returns empty when no client."""
+    def test_get_recent_posts_always_returns_empty(self, mock_config):
+        """Test get_recent_posts always returns empty (read access disabled)."""
         mock_config.validate_twitter.return_value = False
 
         from platforms.twitter import TwitterPlatform
@@ -202,8 +205,8 @@ class TestTwitterGetRecentPosts:
 
     @patch("platforms.twitter.Config")
     @patch("platforms.twitter.TWEEPY_AVAILABLE", True)
-    def test_get_recent_posts_success(self, mock_config):
-        """Test successful retrieval of recent posts."""
+    def test_get_recent_posts_with_client_still_returns_empty(self, mock_config):
+        """Test get_recent_posts returns empty even with client (read disabled)."""
         mock_config.validate_twitter.return_value = True
         mock_config.TWITTER_BEARER_TOKEN = "bearer"
         mock_config.TWITTER_API_KEY = "key"
@@ -213,111 +216,23 @@ class TestTwitterGetRecentPosts:
 
         with patch("platforms.twitter.tweepy") as mock_tweepy:
             mock_client = Mock()
-
-            # Mock get_me
-            mock_me = Mock()
-            mock_me.data = Mock(id="user123")
-            mock_client.get_me.return_value = mock_me
-
-            # Mock get_users_tweets
-            from datetime import datetime
-            mock_tweet = Mock()
-            mock_tweet.id = 123
-            mock_tweet.text = "Test tweet"
-            mock_tweet.created_at = datetime.now()
-
-            mock_tweets = Mock()
-            mock_tweets.data = [mock_tweet]
-            mock_client.get_users_tweets.return_value = mock_tweets
-
             mock_tweepy.Client.return_value = mock_client
 
             from platforms.twitter import TwitterPlatform
             platform = TwitterPlatform()
             posts = platform.get_recent_posts()
 
-            assert len(posts) == 1
-            assert posts[0]["id"] == "123"
-            assert posts[0]["content"] == "Test tweet"
-
-    @patch("platforms.twitter.Config")
-    @patch("platforms.twitter.TWEEPY_AVAILABLE", True)
-    def test_get_recent_posts_no_user(self, mock_config):
-        """Test get_recent_posts when get_me returns no data."""
-        mock_config.validate_twitter.return_value = True
-        mock_config.TWITTER_BEARER_TOKEN = "bearer"
-        mock_config.TWITTER_API_KEY = "key"
-        mock_config.TWITTER_API_SECRET = "secret"
-        mock_config.TWITTER_ACCESS_TOKEN = "token"
-        mock_config.TWITTER_ACCESS_SECRET = "secret"
-
-        with patch("platforms.twitter.tweepy") as mock_tweepy:
-            mock_client = Mock()
-            mock_me = Mock()
-            mock_me.data = None
-            mock_client.get_me.return_value = mock_me
-            mock_tweepy.Client.return_value = mock_client
-
-            from platforms.twitter import TwitterPlatform
-            platform = TwitterPlatform()
-            posts = platform.get_recent_posts()
-
+            # Should return empty without calling any API
             assert posts == []
-
-    @patch("platforms.twitter.Config")
-    @patch("platforms.twitter.TWEEPY_AVAILABLE", True)
-    def test_get_recent_posts_no_tweets(self, mock_config):
-        """Test get_recent_posts when no tweets exist."""
-        mock_config.validate_twitter.return_value = True
-        mock_config.TWITTER_BEARER_TOKEN = "bearer"
-        mock_config.TWITTER_API_KEY = "key"
-        mock_config.TWITTER_API_SECRET = "secret"
-        mock_config.TWITTER_ACCESS_TOKEN = "token"
-        mock_config.TWITTER_ACCESS_SECRET = "secret"
-
-        with patch("platforms.twitter.tweepy") as mock_tweepy:
-            mock_client = Mock()
-            mock_me = Mock()
-            mock_me.data = Mock(id="user123")
-            mock_client.get_me.return_value = mock_me
-
-            mock_tweets = Mock()
-            mock_tweets.data = None
-            mock_client.get_users_tweets.return_value = mock_tweets
-
-            mock_tweepy.Client.return_value = mock_client
-
-            from platforms.twitter import TwitterPlatform
-            platform = TwitterPlatform()
-            posts = platform.get_recent_posts()
-
-            assert posts == []
-
-    @patch("platforms.twitter.Config")
-    @patch("platforms.twitter.TWEEPY_AVAILABLE", True)
-    def test_get_recent_posts_handles_exception(self, mock_config):
-        """Test get_recent_posts handles exceptions gracefully."""
-        mock_config.validate_twitter.return_value = True
-        mock_config.TWITTER_BEARER_TOKEN = "bearer"
-        mock_config.TWITTER_API_KEY = "key"
-        mock_config.TWITTER_API_SECRET = "secret"
-        mock_config.TWITTER_ACCESS_TOKEN = "token"
-        mock_config.TWITTER_ACCESS_SECRET = "secret"
-
-        with patch("platforms.twitter.tweepy") as mock_tweepy:
-            mock_client = Mock()
-            mock_client.get_me.side_effect = Exception("API Error")
-            mock_tweepy.Client.return_value = mock_client
-
-            from platforms.twitter import TwitterPlatform
-            platform = TwitterPlatform()
-            posts = platform.get_recent_posts()
-
-            assert posts == []
+            mock_client.get_me.assert_not_called()
+            mock_client.get_users_tweets.assert_not_called()
 
 
 class TestTwitterHealthCheck:
-    """Tests for TwitterPlatform.health_check() method."""
+    """Tests for TwitterPlatform.health_check() method.
+
+    Note: Health check only verifies client is initialized (no API call).
+    """
 
     @patch("platforms.twitter.Config")
     def test_health_check_without_client(self, mock_config):
@@ -332,8 +247,8 @@ class TestTwitterHealthCheck:
 
     @patch("platforms.twitter.Config")
     @patch("platforms.twitter.TWEEPY_AVAILABLE", True)
-    def test_health_check_success(self, mock_config):
-        """Test health_check returns True with valid credentials."""
+    def test_health_check_with_client(self, mock_config):
+        """Test health_check returns True when client is initialized."""
         mock_config.validate_twitter.return_value = True
         mock_config.TWITTER_BEARER_TOKEN = "bearer"
         mock_config.TWITTER_API_KEY = "key"
@@ -343,38 +258,15 @@ class TestTwitterHealthCheck:
 
         with patch("platforms.twitter.tweepy") as mock_tweepy:
             mock_client = Mock()
-            mock_me = Mock()
-            mock_me.data = Mock(id="user123")
-            mock_client.get_me.return_value = mock_me
             mock_tweepy.Client.return_value = mock_client
 
             from platforms.twitter import TwitterPlatform
             platform = TwitterPlatform()
             result = platform.health_check()
 
+            # Should return True without calling API
             assert result is True
-
-    @patch("platforms.twitter.Config")
-    @patch("platforms.twitter.TWEEPY_AVAILABLE", True)
-    def test_health_check_failure(self, mock_config):
-        """Test health_check returns False when get_me fails."""
-        mock_config.validate_twitter.return_value = True
-        mock_config.TWITTER_BEARER_TOKEN = "bearer"
-        mock_config.TWITTER_API_KEY = "key"
-        mock_config.TWITTER_API_SECRET = "secret"
-        mock_config.TWITTER_ACCESS_TOKEN = "token"
-        mock_config.TWITTER_ACCESS_SECRET = "secret"
-
-        with patch("platforms.twitter.tweepy") as mock_tweepy:
-            mock_client = Mock()
-            mock_client.get_me.side_effect = Exception("Unauthorized")
-            mock_tweepy.Client.return_value = mock_client
-
-            from platforms.twitter import TwitterPlatform
-            platform = TwitterPlatform()
-            result = platform.health_check()
-
-            assert result is False
+            mock_client.get_me.assert_not_called()
 
 
 class TestTwitterPlatformProperties:

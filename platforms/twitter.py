@@ -77,46 +77,20 @@ class TwitterPlatform(BasePlatform):
             }
 
     def get_recent_posts(self, hours: int = 24) -> List[Dict[str, Any]]:
-        """Get recent tweets from authenticated user."""
-        if not self._client:
-            return []
+        """Get recent tweets from authenticated user.
 
-        try:
-            # Get authenticated user
-            me = self._client.get_me()
-            if not me.data:
-                return []
-
-            # Get recent tweets
-            tweets = self._client.get_users_tweets(
-                me.data.id,
-                max_results=10,
-                tweet_fields=["created_at", "text"]
-            )
-
-            if not tweets.data:
-                return []
-
-            return [
-                {
-                    "id": str(tweet.id),
-                    "content": tweet.text,
-                    "created_at": tweet.created_at.isoformat() if tweet.created_at else None
-                }
-                for tweet in tweets.data
-            ]
-        except Exception as e:
-            logger.warning(f"Failed to get recent tweets: {e}")
-            return []
+        Note: Disabled - requires Twitter read access which is not available.
+        Returns empty list to allow agent to proceed without duplicate checking.
+        """
+        # Read access not available - return empty to skip duplicate check
+        logger.info("Twitter read access not available - skipping recent posts check")
+        return []
 
     def health_check(self) -> bool:
-        """Check if Twitter credentials are valid."""
-        if not self._client:
-            return False
+        """Check if Twitter credentials are configured.
 
-        try:
-            me = self._client.get_me()
-            return me.data is not None
-        except Exception as e:
-            logger.warning(f"Twitter health check failed: {e}")
-            return False
+        Note: Only checks if credentials are set, does not validate via API
+        since read access is not available.
+        """
+        # Just check if client is initialized (credentials are set)
+        return self._client is not None
