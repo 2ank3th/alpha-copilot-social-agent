@@ -23,6 +23,7 @@ class TwitterPlatform(BasePlatform):
 
     def __init__(self):
         self._client = None
+        self._api = None  # v1.1 API for media uploads
         if TWEEPY_AVAILABLE and Config.validate_twitter():
             self._client = tweepy.Client(
                 bearer_token=Config.TWITTER_BEARER_TOKEN or None,
@@ -31,8 +32,28 @@ class TwitterPlatform(BasePlatform):
                 access_token=Config.TWITTER_ACCESS_TOKEN,
                 access_token_secret=Config.TWITTER_ACCESS_SECRET
             )
+            # v1.1 API needed for media_upload (v2 doesn't support it)
+            auth = tweepy.OAuth1UserHandler(
+                Config.TWITTER_API_KEY,
+                Config.TWITTER_API_SECRET,
+                Config.TWITTER_ACCESS_TOKEN,
+                Config.TWITTER_ACCESS_SECRET,
+            )
+            self._api = tweepy.API(auth)
 
-    def publish(self, content: str, reply_to_id: str = None) -> Dict[str, Any]:
+    def upload_media(self, image_path: str) -> str:
+        """Upload media to Twitter and return media_id string.
+
+        Uses v1.1 API since v2 Client doesn't support media uploads.
+        """
+        if not self._api:
+            raise RuntimeError("Twitter v1.1 API not initialized. Check credentials.")
+
+        media = self._api.media_upload(filename=image_path)
+        logger.info(f"Uploaded media: {media.media_id_string}")
+        return media.media_id_string
+
+    def publish(self, content: str, reply_to_id: str = None, media_ids: list = None) -> Dict[str, Any]:
         """Publish a tweet, optionally as a reply to create a thread."""
         if Config.DRY_RUN:
             logger.info(f"[DRY RUN] Would tweet: {content[:50]}...")
@@ -57,10 +78,11 @@ class TwitterPlatform(BasePlatform):
             if reply_to_id:
                 response = self._client.create_tweet(
                     text=content,
-                    in_reply_to_tweet_id=reply_to_id
+                    in_reply_to_tweet_id=reply_to_id,
+                    media_ids=media_ids
                 )
             else:
-                response = self._client.create_tweet(text=content)
+                response = self._client.create_tweet(text=content, media_ids=media_ids)
 
             tweet_id = response.data["id"]
 

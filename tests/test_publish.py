@@ -1,5 +1,9 @@
 """Tests for publish tools."""
 
+import json
+import os
+import tempfile
+
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
@@ -139,6 +143,36 @@ class TestCheckRecentPostsTool:
         assert "ERROR" in result
         assert "not supported" in result
 
+    def test_check_recent_posts_uses_local_history_fallback(self):
+        """Test local post history is used when API read access returns nothing."""
+        from tools.publish import CheckRecentPostsTool, _record_post_history
+        from agent.config import Config
+
+        mock_platform = Mock()
+        mock_platform.get_recent_posts.return_value = []
+
+        tool = CheckRecentPostsTool()
+        tool._platform_instances["twitter"] = mock_platform
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+        tmp.close()
+        try:
+            with patch.object(Config, "POST_HISTORY_PATH", tmp.name):
+                _record_post_history(
+                    platform="twitter",
+                    content="$NVDA up 4% today",
+                    post_id="123",
+                    url="https://twitter.com/i/status/123",
+                    is_promo=False,
+                )
+                result = tool.execute("twitter", hours=24)
+
+            assert "RECENT_POSTS" in result
+            assert "$NVDA" in result
+        finally:
+            if os.path.exists(tmp.name):
+                os.remove(tmp.name)
+
 
 class TestGetPlatformStatusTool:
     """Tests for GetPlatformStatusTool class."""
@@ -237,14 +271,14 @@ class TestCrossPostTool:
             {"success": True, "post_id": "tw123", "url": "https://twitter.com/123"},
             {"success": True, "post_id": "tw_promo", "url": "https://twitter.com/promo"}
         ]
-        mock_twitter_platform.truncate_content.return_value = "Test content"
+        mock_twitter_platform.truncate_content.side_effect = lambda text: text
 
         mock_threads_platform = Mock()
         mock_threads_platform.publish.side_effect = [
             {"success": True, "post_id": "th123", "url": "https://threads.net/123"},
             {"success": True, "post_id": "th_promo", "url": "https://threads.net/promo"}
         ]
-        mock_threads_platform.truncate_content.return_value = "Test content"
+        mock_threads_platform.truncate_content.side_effect = lambda text: text
 
         tool = CrossPostTool()
         tool._platform_instances["twitter"] = mock_twitter_platform
@@ -252,6 +286,13 @@ class TestCrossPostTool:
         result = tool.execute("Test content", include_promo=True)
 
         assert "PROMO" in result
+        assert "Variant v" in result
+
+        # Promo follow-up should include platform-specific UTM tags
+        twitter_promo_text = mock_twitter_platform.publish.call_args_list[1].args[0]
+        threads_promo_text = mock_threads_platform.publish.call_args_list[1].args[0]
+        assert "utm_source=twitter" in twitter_promo_text
+        assert "utm_source=threads" in threads_promo_text
 
     def test_cross_post_dry_run(self):
         """Test cross-posting in dry run mode."""
@@ -335,6 +376,51 @@ class TestCrossPostTool:
         # Verify promo publish was not actually called (only main post)
         assert mock_twitter_platform.publish.call_count == 1
 
+    def test_cross_post_records_history_when_live_mode(self):
+        """Test successful live cross-post records entries in local history."""
+        from tools.publish import CrossPostTool
+        from agent.config import Config
+
+        mock_twitter_platform = Mock()
+        mock_twitter_platform.publish.return_value = {
+            "success": True,
+            "post_id": "tw123",
+            "url": "https://twitter.com/123",
+        }
+        mock_twitter_platform.truncate_content.side_effect = lambda text: text
+
+        mock_threads_platform = Mock()
+        mock_threads_platform.publish.return_value = {
+            "success": True,
+            "post_id": "th123",
+            "url": "https://threads.net/123",
+        }
+        mock_threads_platform.truncate_content.side_effect = lambda text: text
+
+        tool = CrossPostTool()
+        tool._platform_instances["twitter"] = mock_twitter_platform
+        tool._platform_instances["threads"] = mock_threads_platform
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+        tmp.close()
+
+        try:
+            with patch.object(Config, "DRY_RUN", False):
+                with patch.object(Config, "POST_HISTORY_PATH", tmp.name):
+                    tool.execute("Test content", include_promo=False)
+
+            with open(tmp.name, "r", encoding="utf-8") as f:
+                history = json.load(f)
+
+            # One main post entry per platform
+            non_promo_entries = [entry for entry in history if not entry.get("is_promo")]
+            assert len(non_promo_entries) == 2
+            platforms = {entry["platform"] for entry in non_promo_entries}
+            assert platforms == {"twitter", "threads"}
+        finally:
+            if os.path.exists(tmp.name):
+                os.remove(tmp.name)
+
 
 class TestDoneTool:
     """Tests for DoneTool class."""
@@ -377,6 +463,154 @@ class TestPromoMessages:
 
         for platform, message in PROMO_MESSAGES.items():
             assert "{url}" in message
+
+    def test_extract_primary_ticker(self):
+        """Test ticker extraction from post content."""
+        from tools.publish import CrossPostTool
+
+        tool = CrossPostTool()
+        assert tool._extract_primary_ticker("$NVDA up 5% today") == "$NVDA"
+        assert tool._extract_primary_ticker("No ticker in this post") == "this setup"
+
+    def test_get_promo_message_includes_ticker_and_utm(self):
+        """Test promo messages are personalized and trackable."""
+        from tools.publish import CrossPostTool
+        from agent.config import Config
+
+        tool = CrossPostTool()
+        with patch.object(Config, "ALPHA_COPILOT_URL", "https://alphacopilot.app"):
+            with patch.object(Config, "ALPHA_COPILOT_UTM_MEDIUM", "social"):
+                with patch.object(Config, "ALPHA_COPILOT_UTM_CAMPAIGN", "qa-campaign"):
+                    with patch.object(Config, "ALPHA_COPILOT_UTM_CONTENT_PREFIX", "promo-thread"):
+                        message, variant = tool._get_promo_message(
+                            "twitter",
+                            "$TSLA down 6% today",
+                        )
+
+        assert "$TSLA" in message
+        assert "utm_source=twitter" in message
+        assert "utm_medium=social" in message
+        assert "utm_campaign=qa-campaign" in message
+        assert "utm_content=promo-thread-v" in message
+        assert variant >= 1
+
+    def test_build_tracking_url_preserves_existing_query(self):
+        """Test UTM builder keeps existing query params."""
+        from tools.publish import CrossPostTool
+        from agent.config import Config
+
+        tool = CrossPostTool()
+        with patch.object(Config, "ALPHA_COPILOT_URL", "https://alphacopilot.app/?ref=profile"):
+            with patch.object(Config, "ALPHA_COPILOT_UTM_MEDIUM", "social"):
+                with patch.object(Config, "ALPHA_COPILOT_UTM_CAMPAIGN", "campaign"):
+                    with patch.object(Config, "ALPHA_COPILOT_UTM_CONTENT_PREFIX", "promo"):
+                        url = tool._build_tracking_url("twitter", 1)
+
+        assert "ref=profile" in url
+        assert "utm_source=twitter" in url
+        assert "utm_content=promo-v2" in url
+
+
+class TestCrossPostWithImage:
+    """Tests for CrossPostTool with image attachment."""
+
+    def test_cross_post_schema_has_image_path(self):
+        """Test CrossPostTool schema includes image_path parameter."""
+        from tools.publish import CrossPostTool
+
+        tool = CrossPostTool()
+        schema = tool.get_schema()
+
+        assert "image_path" in schema["parameters"]["properties"]
+
+    def test_cross_post_with_image_uploads_to_twitter(self):
+        """Test cross-posting with image uploads media to Twitter."""
+        from tools.publish import CrossPostTool
+        import tempfile
+        import os
+
+        # Create a temp file to simulate an image
+        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        tmp.write(b"fake png data")
+        tmp.close()
+
+        mock_twitter = Mock()
+        mock_twitter.upload_media.return_value = "media_123"
+        mock_twitter.publish.return_value = {"success": True, "post_id": "tw123", "url": "https://twitter.com/123"}
+        mock_twitter.truncate_content.return_value = "Test content"
+
+        mock_threads = Mock()
+        mock_threads.publish.return_value = {"success": True, "post_id": "th123", "url": "https://threads.net/123"}
+        mock_threads.truncate_content.return_value = "Test content"
+
+        tool = CrossPostTool()
+        tool._platform_instances["twitter"] = mock_twitter
+        tool._platform_instances["threads"] = mock_threads
+        result = tool.execute("Test content", include_promo=False, image_path=tmp.name)
+
+        # Twitter should have upload_media called
+        mock_twitter.upload_media.assert_called_once_with(tmp.name)
+        # Twitter publish should have media_ids
+        mock_twitter.publish.assert_called_once_with("Test content", media_ids=["media_123"])
+        # Threads should not have media_ids
+        mock_threads.publish.assert_called_once_with("Test content", media_ids=None)
+
+        assert "CROSS_POST_RESULTS" in result
+
+    def test_cross_post_image_upload_failure_falls_back_to_text(self):
+        """Test that image upload failure gracefully falls back to text-only."""
+        from tools.publish import CrossPostTool
+        import tempfile
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        tmp.write(b"fake png data")
+        tmp.close()
+
+        mock_twitter = Mock()
+        mock_twitter.upload_media.side_effect = Exception("Upload failed")
+        mock_twitter.publish.return_value = {"success": True, "post_id": "tw123", "url": "https://twitter.com/123"}
+        mock_twitter.truncate_content.return_value = "Test content"
+
+        mock_threads = Mock()
+        mock_threads.publish.return_value = {"success": True, "post_id": "th123", "url": "https://threads.net/123"}
+        mock_threads.truncate_content.return_value = "Test content"
+
+        tool = CrossPostTool()
+        tool._platform_instances["twitter"] = mock_twitter
+        tool._platform_instances["threads"] = mock_threads
+        result = tool.execute("Test content", include_promo=False, image_path=tmp.name)
+
+        # Should still succeed (text-only fallback)
+        assert "SUCCESS" in result
+        # Twitter should have been called without media_ids
+        mock_twitter.publish.assert_called_once_with("Test content", media_ids=None)
+
+    def test_cross_post_cleans_up_temp_image(self):
+        """Test that temp image file is cleaned up after posting."""
+        from tools.publish import CrossPostTool
+        import tempfile
+        import os
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        tmp.write(b"fake png data")
+        tmp.close()
+        assert os.path.exists(tmp.name)
+
+        mock_twitter = Mock()
+        mock_twitter.publish.return_value = {"success": True, "dry_run": True}
+        mock_twitter.truncate_content.return_value = "Test"
+
+        mock_threads = Mock()
+        mock_threads.publish.return_value = {"success": True, "dry_run": True}
+        mock_threads.truncate_content.return_value = "Test"
+
+        tool = CrossPostTool()
+        tool._platform_instances["twitter"] = mock_twitter
+        tool._platform_instances["threads"] = mock_threads
+        tool.execute("Test", include_promo=False, image_path=tmp.name)
+
+        # File should have been cleaned up
+        assert not os.path.exists(tmp.name)
 
 
 class TestPlatformRegistry:

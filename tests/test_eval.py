@@ -319,3 +319,57 @@ This is not financial advice. Do your own research."""
         score = self.evaluator._score_hookiness_heuristic(post)
 
         assert score.post == post
+
+
+class TestContentTypeDetection:
+    """Tests for content type detection in evaluation."""
+
+    def setup_method(self):
+        self.evaluator = PostEvaluator()
+
+    def test_detect_trade_post(self):
+        """Test that trade posts are detected correctly."""
+        trade_post = "$NVDA $950 call, Jan 17, collect $12 premium, 75% POP #NFA"
+        assert self.evaluator._detect_content_type(trade_post) == "trade"
+
+    def test_detect_question_post(self):
+        """Test that question posts are detected correctly."""
+        question_post = "$NVDA down 8% but options flow is bullish. Who's right?"
+        assert self.evaluator._detect_content_type(question_post) == "question"
+
+    def test_detect_commentary_post(self):
+        """Test that commentary posts are detected correctly."""
+        commentary_post = "Mag 7 earnings this week. Market is pricing in perfection."
+        assert self.evaluator._detect_content_type(commentary_post) == "commentary"
+
+    def test_question_post_not_penalized_on_actionable(self):
+        """Test that question posts get reasonable scores without trade details."""
+        question_post = "$NVDA down 8% but options flow is bullish. Who's right - the stock or the options market?"
+        trade_post = "$NVDA $950 call, Jan 17, collect $12 premium, 75% POP #NFA"
+
+        q_score = self.evaluator._score_quality_heuristic(question_post)
+        t_score = self.evaluator._score_quality_heuristic(trade_post)
+
+        # Question post actionable should not be 0 (it uses engagement_driver instead)
+        assert q_score.actionable >= 1
+
+    def test_commentary_post_not_penalized_on_actionable(self):
+        """Test that commentary posts get reasonable scores without trade details."""
+        commentary_post = "Hot take: Selling options is the only consistent edge retail has. Change my mind."
+
+        score = self.evaluator._score_quality_heuristic(commentary_post)
+
+        # Should score reasonably on actionable (uses engagement_driver)
+        assert score.actionable >= 1
+
+    def test_engagement_driver_scores_questions(self):
+        """Test that engagement driver gives points for questions."""
+        question_post = "Is $NVDA worth buying at these levels?"
+        score = self.evaluator._score_engagement_driver(question_post)
+        assert score >= 2  # Should get points for question + ticker
+
+    def test_engagement_driver_scores_strong_opinions(self):
+        """Test that engagement driver gives points for strong opinions."""
+        opinion_post = "Hot take: The market is completely wrong about $TSLA. Change my mind."
+        score = self.evaluator._score_engagement_driver(opinion_post)
+        assert score >= 3  # Should get points for opinion + ticker

@@ -81,7 +81,7 @@ class ThreadsPlatform(BasePlatform):
             logger.error(f"Failed to publish Threads container: {e}")
             return {"error": str(e)}
 
-    def publish(self, content: str, reply_to_id: str = None) -> Dict[str, Any]:
+    def publish(self, content: str, reply_to_id: str = None, media_ids: list = None) -> Dict[str, Any]:
         """Publish a post to Threads, optionally as a reply to create a thread."""
         if Config.DRY_RUN:
             logger.info(f"[DRY RUN] Would post to Threads: {content[:50]}...")

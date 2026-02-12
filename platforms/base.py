@@ -11,13 +11,14 @@ class BasePlatform(ABC):
     max_length: int  # Character limit for posts
 
     @abstractmethod
-    def publish(self, content: str, reply_to_id: Optional[str] = None) -> Dict[str, Any]:
+    def publish(self, content: str, reply_to_id: Optional[str] = None, media_ids: Optional[list] = None) -> Dict[str, Any]:
         """
         Publish content to the platform.
 
         Args:
             content: The text content to publish
             reply_to_id: Optional ID of post to reply to (for threading)
+            media_ids: Optional list of media IDs to attach
 
         Returns:
             Dict with 'success', 'post_id', 'url', and optionally 'error'

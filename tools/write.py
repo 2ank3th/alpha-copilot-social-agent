@@ -96,12 +96,29 @@ class WritePostTool(BaseTool):
         # Check for required elements (suggestive, not strict)
         has_ticker = bool(re.search(r'\$[A-Z]{1,5}\b', post_text))
         has_number = bool(re.search(r'\d', post_text))
+        has_link = bool(re.search(r'https?://|www\.', post_text, re.IGNORECASE))
+        has_engagement_driver = (
+            '?' in post_text
+            or bool(re.search(
+                r'\b(hot take|change my mind|agree|disagree|bull|bear|who\'s right|would you)\b',
+                post_text,
+                re.IGNORECASE,
+            ))
+        )
 
         warnings = []
         if not has_ticker:
             warnings.append("WARNING: No ticker symbol ($SYMBOL) found")
         if not has_number:
             warnings.append("WARNING: No numbers found (strike/premium/date)")
+        if has_link:
+            warnings.append(
+                "WARNING: Link detected in main post. Keep links in the promo reply thread to protect reach."
+            )
+        if not has_engagement_driver:
+            warnings.append(
+                "WARNING: No engagement driver detected. Add a direct question or opinion to invite replies."
+            )
 
         # Build response
         response_parts = [

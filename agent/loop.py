@@ -215,6 +215,7 @@ def create_agent() -> AgentLoop:
         CrossPostTool,
         DoneTool,
     )
+    from tools.image_gen import GenerateTradeCardTool
 
     # Initialize LLM
     llm = LLMClient()
@@ -224,6 +225,7 @@ def create_agent() -> AgentLoop:
     tools.register(GetMarketNewsTool())  # Get LIVE news via Google Search
     tools.register(QueryAlphaCopilotTool())
     tools.register(WritePostTool())  # LLM writes complete post text
+    tools.register(GenerateTradeCardTool())  # Generate trade card images
     tools.register(PublishTool())
     tools.register(CrossPostTool())  # Cross-post to Twitter + Threads
     tools.register(CheckRecentPostsTool())

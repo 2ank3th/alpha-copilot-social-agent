@@ -41,6 +41,7 @@ This agent follows the **ReAct (Reason + Act) pattern** - a simple while loop wh
 - **Uses Alpha Copilot Backend**: Same API as the web app for consistent analysis
 - **Cross-Posting**: Posts to both Twitter and Threads simultaneously for maximum reach
 - **Promotional Follow-ups**: Automatically adds Alpha Copilot promo posts after insights
+- **Trackable Inbound**: Promo links include platform-specific UTM parameters for attribution
 - **Platform Agnostic**: Easy to add new platforms (Discord, LinkedIn, etc.)
 - **Autonomous**: LLM decides what to query, how to compose, when to post
 - **Duplicate Prevention**: Checks recent posts before creating new content
@@ -98,8 +99,12 @@ python -m agent.main --task "Post a bullish play for NVDA"
 | `THREADS_ACCESS_TOKEN` | Meta Threads access token | For Threads |
 | `THREADS_USER_ID` | Meta Threads user ID | For Threads |
 | `ALPHA_COPILOT_URL` | URL for promo posts | No (default: alphacopilot.app) |
-| `ENABLE_PROMO_POST` | Enable promo follow-ups | No (default: true) |
+| `ALPHA_COPILOT_UTM_MEDIUM` | UTM medium for promo links | No (default: social) |
+| `ALPHA_COPILOT_UTM_CAMPAIGN` | UTM campaign for promo links | No (default: social-agent) |
+| `ALPHA_COPILOT_UTM_CONTENT_PREFIX` | UTM content prefix for promo variants | No (default: promo-thread) |
+| `ENABLE_PROMO_POST` | Enable promo follow-ups | No (default: false) |
 | `DRY_RUN` | Set to `true` to skip actual posting | No |
+| `POST_HISTORY_PATH` | Local JSON cache used for duplicate checks when API read access is unavailable | No (default: `.data/post_history.json`) |
 
 ### Getting Threads Credentials
 
@@ -190,8 +195,9 @@ When you run the agent, the `cross_post` tool:
 
 1. Posts the main content to **Twitter** (280 char limit)
 2. Posts the same content to **Threads** (500 char limit)
-3. Follows up with a **promotional post** for Alpha Copilot on each platform
-4. Returns a summary of all posts made
+3. Follows up with a **promotional reply thread** for Alpha Copilot on each platform
+4. Appends platform-specific UTM tags to promo links for inbound attribution
+5. Returns a summary of all posts made
 
 The promotional messages are platform-optimized:
 - **Twitter**: Concise with hashtags

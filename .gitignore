@@ -71,3 +71,5 @@ Thumbs.db
 *.log
 eval_results_*.json
 gen-lang-client-*.json
+.artifacts/
+.data/

@@ -189,8 +189,77 @@ class PostEvaluator:
             reasoning=reasoning
         )
 
+    def _detect_content_type(self, post: str) -> str:
+        """Detect the content type of a post.
+
+        Returns:
+            "trade" if the post contains strike price patterns, strategy keywords, and expiry dates
+            "question" if the post contains a question mark and no trade details
+            "commentary" otherwise (catch-all for non-trade content)
+        """
+        has_strike = bool(re.search(r'\$\d+', post))
+        has_strategy = bool(re.search(r'\b(call|put|premium|POP|covered|spread|iron condor|straddle|strangle)\b', post, re.I))
+        has_expiry = bool(re.search(r'\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d+', post, re.I))
+
+        # Trade posts have strike prices + strategy keywords + expiry dates
+        if has_strike and has_strategy and has_expiry:
+            return "trade"
+
+        # Question posts contain ? but no trade details
+        if '?' in post and not (has_strike and has_strategy):
+            return "question"
+
+        # Everything else is commentary
+        return "commentary"
+
+    def _score_engagement_driver(self, post: str) -> int:
+        """Score engagement potential for non-trade posts (0-10).
+
+        Checks for:
+        - Questions (contains ?)
+        - Strong opinions (hot take, unpopular opinion, change my mind, bold, disagree)
+        - Specific references (ticker symbols, percentages, named companies)
+        - Numbers and data points ($, %, specific numbers)
+        """
+        score = 0
+
+        # Questions (up to 3 points)
+        question_count = post.count('?')
+        if question_count >= 2:
+            score += 3
+        elif question_count >= 1:
+            score += 2
+
+        # Strong opinions (up to 3 points)
+        opinion_patterns = [
+            r'\bhot take\b', r'\bunpopular opinion\b', r'\bchange my mind\b',
+            r'\bbold\b', r'\bdisagree\b', r'\beveryone.*(wrong|right)\b',
+            r'\bcontrar', r'\boverrated\b', r'\bunderrated\b'
+        ]
+        opinion_matches = sum(1 for p in opinion_patterns if re.search(p, post, re.I))
+        score += min(3, opinion_matches)
+
+        # Specific references - ticker symbols and percentages (up to 2 points)
+        has_ticker = bool(re.search(r'\$[A-Z]{1,5}\b', post))
+        has_percentage = bool(re.search(r'\d+%', post))
+        if has_ticker:
+            score += 1
+        if has_percentage:
+            score += 1
+
+        # Numbers and data points (up to 2 points)
+        number_matches = len(re.findall(r'\b\d+[\.\d]*\b', post))
+        if number_matches >= 3:
+            score += 2
+        elif number_matches >= 1:
+            score += 1
+
+        return max(1, min(10, score))
+
     def _score_quality_heuristic(self, post: str) -> QualityScore:
         """Score post quality using heuristic rules."""
+
+        content_type = self._detect_content_type(post)
 
         # THESIS_CLARITY: Check for clear directional view
         thesis_indicators = [
@@ -209,14 +278,19 @@ class PostEvaluator:
         ]
         news_driven = self._pattern_score(post, news_indicators, scale=10)
 
-        # ACTIONABLE: Check for specific trade details
-        has_strike = bool(re.search(r'\$\d+', post))
-        has_date = bool(re.search(r'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec', post))
-        has_premium = bool(re.search(r'premium|credit|collect', post, re.I))
-        has_pop = bool(re.search(r'\d+%.*prob', post, re.I))
+        # ACTIONABLE or ENGAGEMENT_DRIVER: depends on content type
+        if content_type == "trade":
+            # For trade posts: check for specific trade details
+            has_strike = bool(re.search(r'\$\d+', post))
+            has_date = bool(re.search(r'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec', post))
+            has_premium = bool(re.search(r'premium|credit|collect', post, re.I))
+            has_pop = bool(re.search(r'\d+%.*prob', post, re.I))
 
-        actionable = sum([has_strike * 3, has_date * 3, has_premium * 2, has_pop * 2])
-        actionable = min(10, actionable)
+            actionable = sum([has_strike * 3, has_date * 3, has_premium * 2, has_pop * 2])
+            actionable = min(10, actionable)
+        else:
+            # For non-trade posts: score engagement potential instead
+            actionable = self._score_engagement_driver(post)
 
         # ENGAGEMENT: Similar to hookiness scroll_stop
         # Use scroll_stop as base and scale
@@ -247,7 +321,7 @@ class PostEvaluator:
             engagement=engagement,
             originality=originality,
             total=total,
-            reasoning=f"Quality heuristic: thesis={thesis_clarity}, news={news_driven}, actionable={actionable}"
+            reasoning=f"Quality heuristic (type={content_type}): thesis={thesis_clarity}, news={news_driven}, actionable={actionable}"
         )
 
     def _pattern_score(self, text: str, patterns: list, scale: int = 10) -> int:

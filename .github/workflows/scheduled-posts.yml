@@ -1,0 +1,107 @@
+name: Scheduled Posts
+
+on:
+  schedule:
+    # Weekdays only - all times in UTC (EST + 5)
+    - cron: '30 12 * * 1-5'   # 7:30 AM EST - pre-market
+    - cron: '0 17 * * 1-5'    # 12:00 PM EST - midday
+    - cron: '30 20 * * 1-5'   # 3:30 PM EST - power hour
+
+  workflow_dispatch:
+    inputs:
+      post_type:
+        description: 'Type of post to create'
+        required: true
+        default: 'morning'
+        type: choice
+        options:
+          - morning
+          - eod
+          - volatility
+          - question
+          - contrarian
+          - commentary
+          - thread_starter
+
+concurrency:
+  group: social-agent-post
+  cancel-in-progress: false
+
+jobs:
+  post:
+    name: Create & Publish Post
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright browsers for image generation
+        run: python -m playwright install --with-deps chromium
+
+      - name: Determine post type
+        id: post_type
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "type=${{ github.event.inputs.post_type }}" >> $GITHUB_OUTPUT
+          else
+            # Determine based on schedule and day of week
+            CRON="${{ github.event.schedule }}"
+            DOW=$(date +%u)  # 1=Monday, 5=Friday
+
+            if [ "$CRON" = "30 12 * * 1-5" ]; then
+              # Morning slot: rotate morning/question/contrarian
+              case $((DOW % 3)) in
+                0) echo "type=contrarian" >> $GITHUB_OUTPUT ;;
+                1) echo "type=morning" >> $GITHUB_OUTPUT ;;
+                2) echo "type=question" >> $GITHUB_OUTPUT ;;
+              esac
+            elif [ "$CRON" = "0 17 * * 1-5" ]; then
+              # Midday slot: rotate commentary/volatility/thread_starter
+              case $((DOW % 3)) in
+                0) echo "type=thread_starter" >> $GITHUB_OUTPUT ;;
+                1) echo "type=commentary" >> $GITHUB_OUTPUT ;;
+                2) echo "type=volatility" >> $GITHUB_OUTPUT ;;
+              esac
+            elif [ "$CRON" = "30 20 * * 1-5" ]; then
+              # EOD slot: always eod
+              echo "type=eod" >> $GITHUB_OUTPUT
+            else
+              echo "type=morning" >> $GITHUB_OUTPUT
+            fi
+          fi
+          echo "Selected post type: $(cat $GITHUB_OUTPUT)"
+
+      - name: Run agent
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ALPHA_COPILOT_API_KEY: ${{ secrets.ALPHA_COPILOT_API_KEY }}
+          ALPHA_COPILOT_API_URL: ${{ secrets.ALPHA_COPILOT_API_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_EMAIL: ${{ secrets.SUPABASE_EMAIL }}
+          SUPABASE_PASSWORD: ${{ secrets.SUPABASE_PASSWORD }}
+          TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
+          TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
+          TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
+          TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
+          TWITTER_BEARER_TOKEN: ${{ secrets.TWITTER_BEARER_TOKEN }}
+          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+          THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
+          ENABLE_PROMO_POST: "false"
+          DRY_RUN: "false"
+        run: |
+          echo "Creating ${{ steps.post_type.outputs.type }} post..."
+          python -m agent.main --post ${{ steps.post_type.outputs.type }}

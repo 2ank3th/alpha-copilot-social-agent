@@ -176,6 +176,10 @@ Examples:
   python -m agent.main --post morning --no-promo   # Skip promotional follow-up
   python -m agent.main --post sector --sector XLF  # Sector-focused cross-post
   python -m agent.main --post morning --dry-run    # Test without posting
+  python -m agent.main --post question                # Market question (no trade)
+  python -m agent.main --post contrarian              # Contrarian take
+  python -m agent.main --post commentary              # Market commentary
+  python -m agent.main --post thread_starter          # Discussion starter
   python -m agent.main --task "Post a bullish play for NVDA"
   python -m agent.main --eval --runs 5             # Evaluation mode
         """
@@ -183,7 +187,7 @@ Examples:
 
     parser.add_argument(
         '--post',
-        choices=['morning', 'eod', 'volatility', 'sector'],
+        choices=['morning', 'eod', 'volatility', 'sector', 'question', 'contrarian', 'commentary', 'thread_starter'],
         help='Type of post to create'
     )
     parser.add_argument(

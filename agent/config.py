@@ -48,11 +48,24 @@ class Config:
         "ALPHA_COPILOT_URL",
         "https://alphacopilot.app"
     )
-    ENABLE_PROMO_POST: bool = os.getenv("ENABLE_PROMO_POST", "true").lower() == "true"
+    ALPHA_COPILOT_UTM_MEDIUM: str = os.getenv(
+        "ALPHA_COPILOT_UTM_MEDIUM",
+        "social"
+    )
+    ALPHA_COPILOT_UTM_CAMPAIGN: str = os.getenv(
+        "ALPHA_COPILOT_UTM_CAMPAIGN",
+        "social-agent"
+    )
+    ALPHA_COPILOT_UTM_CONTENT_PREFIX: str = os.getenv(
+        "ALPHA_COPILOT_UTM_CONTENT_PREFIX",
+        "promo-thread"
+    )
+    ENABLE_PROMO_POST: bool = os.getenv("ENABLE_PROMO_POST", "false").lower() == "true"
 
     # Agent Settings
     MAX_ITERATIONS: int = int(os.getenv("MAX_ITERATIONS", "10"))
     DRY_RUN: bool = os.getenv("DRY_RUN", "true").lower() == "true"
+    POST_HISTORY_PATH: str = os.getenv("POST_HISTORY_PATH", ".data/post_history.json")
 
     # Evaluation Thresholds
     EVAL_HOOKINESS_MIN: int = int(os.getenv("EVAL_HOOKINESS_MIN", "15"))  # 15/25 = 60%

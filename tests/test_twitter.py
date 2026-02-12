@@ -126,7 +126,8 @@ class TestTwitterPublish:
 
             mock_client.create_tweet.assert_called_with(
                 text="Reply tweet",
-                in_reply_to_tweet_id="12345"
+                in_reply_to_tweet_id="12345",
+                media_ids=None
             )
             assert result["success"] is True
 
@@ -267,6 +268,92 @@ class TestTwitterHealthCheck:
             # Should return True without calling API
             assert result is True
             mock_client.get_me.assert_not_called()
+
+
+class TestTwitterUploadMedia:
+    """Tests for TwitterPlatform.upload_media() method."""
+
+    @patch("platforms.twitter.Config")
+    @patch("platforms.twitter.TWEEPY_AVAILABLE", True)
+    def test_upload_media_success(self, mock_config):
+        """Test successful media upload."""
+        mock_config.validate_twitter.return_value = True
+        mock_config.TWITTER_BEARER_TOKEN = "bearer"
+        mock_config.TWITTER_API_KEY = "key"
+        mock_config.TWITTER_API_SECRET = "secret"
+        mock_config.TWITTER_ACCESS_TOKEN = "token"
+        mock_config.TWITTER_ACCESS_SECRET = "secret"
+
+        with patch("platforms.twitter.tweepy") as mock_tweepy:
+            mock_api = Mock()
+            mock_media = Mock()
+            mock_media.media_id_string = "12345"
+            mock_api.media_upload.return_value = mock_media
+            mock_tweepy.API.return_value = mock_api
+
+            from platforms.twitter import TwitterPlatform
+            platform = TwitterPlatform()
+            result = platform.upload_media("/tmp/test.png")
+
+            assert result == "12345"
+            mock_api.media_upload.assert_called_once_with(filename="/tmp/test.png")
+
+    @patch("platforms.twitter.Config")
+    def test_upload_media_without_api(self, mock_config):
+        """Test upload_media raises when v1.1 API not initialized."""
+        mock_config.validate_twitter.return_value = False
+
+        from platforms.twitter import TwitterPlatform
+        platform = TwitterPlatform()
+
+        with pytest.raises(RuntimeError, match="v1.1 API not initialized"):
+            platform.upload_media("/tmp/test.png")
+
+
+class TestTwitterPublishWithMedia:
+    """Tests for TwitterPlatform.publish() with media_ids."""
+
+    @patch("platforms.twitter.Config")
+    @patch("platforms.twitter.TWEEPY_AVAILABLE", True)
+    def test_publish_with_media_ids(self, mock_config):
+        """Test publish passes media_ids to create_tweet."""
+        mock_config.DRY_RUN = False
+        mock_config.validate_twitter.return_value = True
+        mock_config.TWITTER_BEARER_TOKEN = "bearer"
+        mock_config.TWITTER_API_KEY = "key"
+        mock_config.TWITTER_API_SECRET = "secret"
+        mock_config.TWITTER_ACCESS_TOKEN = "token"
+        mock_config.TWITTER_ACCESS_SECRET = "secret"
+
+        with patch("platforms.twitter.tweepy") as mock_tweepy:
+            mock_client = Mock()
+            mock_response = Mock()
+            mock_response.data = {"id": "12345"}
+            mock_client.create_tweet.return_value = mock_response
+            mock_tweepy.Client.return_value = mock_client
+
+            from platforms.twitter import TwitterPlatform
+            platform = TwitterPlatform()
+            result = platform.publish("Test tweet", media_ids=["media_123"])
+
+            mock_client.create_tweet.assert_called_with(
+                text="Test tweet",
+                media_ids=["media_123"]
+            )
+            assert result["success"] is True
+
+    @patch("platforms.twitter.Config")
+    def test_publish_dry_run_ignores_media_ids(self, mock_config):
+        """Test publish in dry run mode works with media_ids."""
+        mock_config.DRY_RUN = True
+        mock_config.validate_twitter.return_value = False
+
+        from platforms.twitter import TwitterPlatform
+        platform = TwitterPlatform()
+        result = platform.publish("Test tweet", media_ids=["media_123"])
+
+        assert result["success"] is True
+        assert result["dry_run"] is True
 
 
 class TestTwitterPlatformProperties:

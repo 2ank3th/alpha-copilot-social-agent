@@ -2,6 +2,7 @@
 
 from .alpha_copilot import QueryAlphaCopilotTool
 from .base import BaseTool
+from .image_gen import GenerateTradeCardTool
 from .market_news import GetMarketNewsTool
 from .publish import (
     CheckRecentPostsTool,
@@ -18,6 +19,7 @@ __all__ = [
     "CheckRecentPostsTool",
     "CrossPostTool",
     "DoneTool",
+    "GenerateTradeCardTool",
     "GetMarketNewsTool",
     "GetPlatformStatusTool",
     "PublishTool",
