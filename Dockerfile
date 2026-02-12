@@ -8,6 +8,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install Playwright Chromium + system deps (needed for trade card image gen)
+RUN python -m playwright install --with-deps chromium
+
 # Copy application code
 COPY . .
 
