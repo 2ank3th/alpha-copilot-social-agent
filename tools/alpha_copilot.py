@@ -80,7 +80,7 @@ class QueryAlphaCopilotTool(BaseTool):
             }
 
             response = self._client.post(
-                f"{self.api_url}/api/query",
+                f"{self.api_url}/api/query/agent",
                 headers=headers,
                 json={
                     "query": query,
