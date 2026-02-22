@@ -9,9 +9,9 @@ from datetime import datetime
 from typing import List, Dict, Any
 
 from .config import Config
-from .loop import create_agent
+from .loop import create_agent, create_engage_agent
 from .eval import PostEvaluator
-from prompts.system import get_task_prompt
+from prompts.system import get_task_prompt, ENGAGE_TASK
 
 # Configure logging
 logging.basicConfig(
@@ -176,10 +176,12 @@ Examples:
   python -m agent.main --post morning --no-promo   # Skip promotional follow-up
   python -m agent.main --post sector --sector XLF  # Sector-focused cross-post
   python -m agent.main --post morning --dry-run    # Test without posting
-  python -m agent.main --post question                # Market question (no trade)
-  python -m agent.main --post contrarian              # Contrarian take
-  python -m agent.main --post commentary              # Market commentary
-  python -m agent.main --post thread_starter          # Discussion starter
+  python -m agent.main --post question             # Market question (no trade)
+  python -m agent.main --post contrarian           # Contrarian take
+  python -m agent.main --post commentary           # Market commentary
+  python -m agent.main --post thread_starter       # Discussion starter
+  python -m agent.main --engage                    # Reply to popular FinTwit tweets
+  python -m agent.main --engage --dry-run          # Test engagement without posting
   python -m agent.main --task "Post a bullish play for NVDA"
   python -m agent.main --eval --runs 5             # Evaluation mode
         """
@@ -217,6 +219,11 @@ Examples:
         help='Skip promotional follow-up post'
     )
     parser.add_argument(
+        '--engage',
+        action='store_true',
+        help='Run in engagement mode - reply to popular FinTwit tweets'
+    )
+    parser.add_argument(
         '--eval',
         action='store_true',
         help='Run in evaluation mode - generate N posts and score them'
@@ -231,7 +238,7 @@ Examples:
     args = parser.parse_args()
 
     # Validate arguments
-    if not args.eval and not args.post and not args.task:
+    if not args.eval and not args.engage and not args.post and not args.task:
         parser.print_help()
         sys.exit(1)
 
@@ -285,6 +292,26 @@ Examples:
     if args.eval:
         run_eval_mode(args)
         return
+
+    # Run engagement mode if requested
+    if args.engage:
+        print("Mode: ENGAGE (community engagement)")
+        print("=" * 50)
+        try:
+            agent = create_engage_agent()
+            result = agent.run(ENGAGE_TASK)
+            print("=" * 50)
+            print("Result:")
+            print(result)
+            print("=" * 50)
+            if "ENGAGE_COMPLETE" in result:
+                sys.exit(0)
+            else:
+                sys.exit(1)
+        except Exception as e:
+            logger.exception("Engage agent failed")
+            print(f"ERROR: {e}")
+            sys.exit(1)
 
     # Generate task
     if args.task:

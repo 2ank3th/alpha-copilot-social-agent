@@ -216,28 +216,43 @@ class PostEvaluator:
         """Score engagement potential for non-trade posts (0-10).
 
         Checks for:
-        - Questions (contains ?)
-        - Strong opinions (hot take, unpopular opinion, change my mind, bold, disagree)
-        - Specific references (ticker symbols, percentages, named companies)
-        - Numbers and data points ($, %, specific numbers)
+        - Questions (up to 4 points)
+        - Conversation starters (up to 3 points)
+        - Strong opinions (up to 4 points)
+        - Specific references (ticker symbols, percentages - up to 2 points)
+        - Numbers and data points (up to 2 points)
+
+        Max raw score is 15, capped at 10, so non-trade posts can
+        realistically hit 8-10 just like trade posts.
         """
         score = 0
 
-        # Questions (up to 3 points)
+        # Questions (up to 4 points)
         question_count = post.count('?')
         if question_count >= 2:
-            score += 3
+            score += 4
         elif question_count >= 1:
-            score += 2
+            score += 3
 
-        # Strong opinions (up to 3 points)
+        # Conversation starters (up to 3 points)
+        conversation_patterns = [
+            r'\bwhat do you think\b', r'\bagree or disagree\b',
+            r"\bwho'?s buying\b", r"\bwho'?s selling\b",
+            r'\byour move\b', r'\bthoughts\?\b', r"\bwhat'?s your\b"
+        ]
+        conversation_matches = sum(1 for p in conversation_patterns if re.search(p, post, re.I))
+        score += min(3, conversation_matches)
+
+        # Strong opinions (up to 4 points)
         opinion_patterns = [
             r'\bhot take\b', r'\bunpopular opinion\b', r'\bchange my mind\b',
             r'\bbold\b', r'\bdisagree\b', r'\beveryone.*(wrong|right)\b',
-            r'\bcontrar', r'\boverrated\b', r'\bunderrated\b'
+            r'\bcontrar', r'\boverrated\b', r'\bunderrated\b',
+            r'\bI think\b', r'\bbet against\b', r'\bwrong about\b',
+            r'\bsleeping on\b', r'\bmiss this\b'
         ]
         opinion_matches = sum(1 for p in opinion_patterns if re.search(p, post, re.I))
-        score += min(3, opinion_matches)
+        score += min(4, opinion_matches)
 
         # Specific references - ticker symbols and percentages (up to 2 points)
         has_ticker = bool(re.search(r'\$[A-Z]{1,5}\b', post))
@@ -310,6 +325,9 @@ class PostEvaluator:
             originality += 2
         if has_question or has_story:
             originality += 2
+        # Non-trade content (questions/commentary) is inherently more varied
+        if content_type in ("question", "commentary"):
+            originality += 1
         originality = max(1, min(10, originality))
 
         total = thesis_clarity + news_driven + actionable + engagement + originality

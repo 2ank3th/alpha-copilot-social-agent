@@ -4,8 +4,10 @@ on:
   schedule:
     # Weekdays only - all times in UTC (EST + 5)
     - cron: '30 12 * * 1-5'   # 7:30 AM EST - pre-market
+    - cron: '0 15 * * 1-5'    # 10:00 AM EST - mid-morning engage
     - cron: '0 17 * * 1-5'    # 12:00 PM EST - midday
     - cron: '30 20 * * 1-5'   # 3:30 PM EST - power hour
+    - cron: '0 22 * * 1-5'    # 5:00 PM EST - after-hours engage
 
   workflow_dispatch:
     inputs:
@@ -22,6 +24,7 @@ on:
           - contrarian
           - commentary
           - thread_starter
+          - engage
 
 concurrency:
   group: social-agent-post
@@ -56,33 +59,52 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "type=${{ github.event.inputs.post_type }}" >> $GITHUB_OUTPUT
+            echo "mode=post" >> $GITHUB_OUTPUT
           else
             # Determine based on schedule and day of week
             CRON="${{ github.event.schedule }}"
             DOW=$(date +%u)  # 1=Monday, 5=Friday
 
             if [ "$CRON" = "30 12 * * 1-5" ]; then
-              # Morning slot: rotate morning/question/contrarian
-              case $((DOW % 3)) in
-                0) echo "type=contrarian" >> $GITHUB_OUTPUT ;;
+              # 7:30 AM pre-market: rotate trade/question/contrarian
+              # Mon=trade, Tue=question, Wed=contrarian, Thu=trade, Fri=question
+              case $DOW in
                 1) echo "type=morning" >> $GITHUB_OUTPUT ;;
                 2) echo "type=question" >> $GITHUB_OUTPUT ;;
+                3) echo "type=contrarian" >> $GITHUB_OUTPUT ;;
+                4) echo "type=morning" >> $GITHUB_OUTPUT ;;
+                5) echo "type=question" >> $GITHUB_OUTPUT ;;
               esac
+              echo "mode=post" >> $GITHUB_OUTPUT
+            elif [ "$CRON" = "0 15 * * 1-5" ]; then
+              # 10:00 AM engage slot: reply to trending FinTwit tweets
+              echo "type=engage" >> $GITHUB_OUTPUT
+              echo "mode=engage" >> $GITHUB_OUTPUT
             elif [ "$CRON" = "0 17 * * 1-5" ]; then
-              # Midday slot: rotate commentary/volatility/thread_starter
-              case $((DOW % 3)) in
-                0) echo "type=thread_starter" >> $GITHUB_OUTPUT ;;
+              # 12:00 PM midday: rotate commentary/thread_starter/volatility
+              # Mon=commentary, Tue=thread_starter, Wed=volatility, Thu=commentary, Fri=thread_starter
+              case $DOW in
                 1) echo "type=commentary" >> $GITHUB_OUTPUT ;;
-                2) echo "type=volatility" >> $GITHUB_OUTPUT ;;
+                2) echo "type=thread_starter" >> $GITHUB_OUTPUT ;;
+                3) echo "type=volatility" >> $GITHUB_OUTPUT ;;
+                4) echo "type=commentary" >> $GITHUB_OUTPUT ;;
+                5) echo "type=thread_starter" >> $GITHUB_OUTPUT ;;
               esac
+              echo "mode=post" >> $GITHUB_OUTPUT
             elif [ "$CRON" = "30 20 * * 1-5" ]; then
-              # EOD slot: always eod
+              # 3:30 PM power hour: always eod trade
               echo "type=eod" >> $GITHUB_OUTPUT
+              echo "mode=post" >> $GITHUB_OUTPUT
+            elif [ "$CRON" = "0 22 * * 1-5" ]; then
+              # 5:00 PM after-hours engage slot
+              echo "type=engage" >> $GITHUB_OUTPUT
+              echo "mode=engage" >> $GITHUB_OUTPUT
             else
               echo "type=morning" >> $GITHUB_OUTPUT
+              echo "mode=post" >> $GITHUB_OUTPUT
             fi
           fi
-          echo "Selected post type: $(cat $GITHUB_OUTPUT)"
+          echo "Selected: mode=$(grep mode $GITHUB_OUTPUT | cut -d= -f2) type=$(grep type $GITHUB_OUTPUT | cut -d= -f2)"
 
       - name: Run agent
         env:
@@ -103,5 +125,13 @@ jobs:
           ENABLE_PROMO_POST: "false"
           DRY_RUN: "false"
         run: |
-          echo "Creating ${{ steps.post_type.outputs.type }} post..."
-          python -m agent.main --post ${{ steps.post_type.outputs.type }}
+          MODE="${{ steps.post_type.outputs.mode }}"
+          TYPE="${{ steps.post_type.outputs.type }}"
+
+          if [ "$MODE" = "engage" ]; then
+            echo "Running engage mode..."
+            python -m agent.main --engage
+          else
+            echo "Creating $TYPE post..."
+            python -m agent.main --post $TYPE
+          fi

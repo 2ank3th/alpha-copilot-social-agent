@@ -9,7 +9,7 @@ from .llm import LLMClient, LLMResponse
 from .config import Config
 from .eval import PostEvaluator
 from tools.registry import ToolRegistry
-from prompts.system import SYSTEM_PROMPT
+from prompts.system import SYSTEM_PROMPT, ENGAGE_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +31,14 @@ class AgentLoop:
     5. Repeat until done or max iterations
     """
 
-    def __init__(self, llm: LLMClient, tools: ToolRegistry, evaluator: PostEvaluator = None):
+    def __init__(self, llm: LLMClient, tools: ToolRegistry, evaluator: PostEvaluator = None,
+                 system_prompt: str = None):
         self.llm = llm
         self.tools = tools
         self.evaluator = evaluator or PostEvaluator()
         self.max_iterations = Config.MAX_ITERATIONS
         self._pending_post = None  # Track post awaiting evaluation
+        self._system_prompt = system_prompt or SYSTEM_PROMPT
 
     def run(self, task: str) -> str:
         """
@@ -61,7 +63,7 @@ class AgentLoop:
         contents: List[Any] = [
             types.Content(
                 role="user",
-                parts=[types.Part.from_text(text=f"{SYSTEM_PROMPT}\n\n---\n\nTask: {task}")]
+                parts=[types.Part.from_text(text=f"{self._system_prompt}\n\n---\n\nTask: {task}")]
             )
         ]
 
@@ -78,7 +80,10 @@ class AgentLoop:
                 logger.info(f"LLM reasoning: {response.reasoning[:100]}...")
 
                 # 2. Check if done
-                if response.is_done and response.tool_call:
+                is_done = response.is_done or (
+                    response.tool_call and response.tool_call.get("name") == "engage_done"
+                )
+                if is_done and response.tool_call:
                     # Execute done tool to get summary
                     result = self.tools.execute(
                         response.tool_call["name"],
@@ -236,3 +241,19 @@ def create_agent() -> AgentLoop:
     evaluator = PostEvaluator()
 
     return AgentLoop(llm, tools, evaluator)
+
+
+def create_engage_agent() -> AgentLoop:
+    """Create agent configured for community engagement (replying to tweets)."""
+    from tools.market_news import GetMarketNewsTool
+    from tools.engage import SearchTweetsTool, ReplyToTweetTool, EngageDoneTool
+
+    llm = LLMClient()
+
+    tools = ToolRegistry()
+    tools.register(GetMarketNewsTool())
+    tools.register(SearchTweetsTool())
+    tools.register(ReplyToTweetTool())
+    tools.register(EngageDoneTool())
+
+    return AgentLoop(llm, tools, system_prompt=ENGAGE_SYSTEM_PROMPT)
