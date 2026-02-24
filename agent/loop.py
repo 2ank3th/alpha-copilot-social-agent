@@ -111,21 +111,18 @@ class AgentLoop:
 
                                 eval_result = self._evaluate_post(post_text)
                                 if not eval_result.passed:
-                                    # Evaluation failed - abort
-                                    raise EvaluationFailedError(
-                                        f"Post quality check failed: {eval_result.failure_reason}\n\n"
+                                    # Evaluation failed - feed back to agent to retry
+                                    result = (
+                                        f"EVAL_FAILED: Post quality check failed: {eval_result.failure_reason}\n\n"
                                         f"Score: {eval_result.total}/75 (min {Config.EVAL_TOTAL_MIN})\n"
                                         f"Hookiness: {eval_result.hookiness.total}/25\n"
                                         f"Quality: {eval_result.quality.total}/50\n\n"
-                                        "Post was NOT published. Please try a different approach."
+                                        "Post was NOT published. Try a different angle or wording."
                                     )
-                                result = result + f"\n\nEVAL_PASSED: Score {eval_result.total}/75"
+                                else:
+                                    result = result + f"\n\nEVAL_PASSED: Score {eval_result.total}/75"
 
                         logger.info(f"Tool result: {result[:200]}...")
-                    except EvaluationFailedError as e:
-                        # Evaluation failure - surface to user, don't retry
-                        logger.error(f"Evaluation failed: {e}")
-                        return f"EVAL_FAILED: {str(e)}"
                     except Exception as e:
                         result = f"TOOL_ERROR: {str(e)}"
                         logger.error(f"Tool execution failed: {e}")

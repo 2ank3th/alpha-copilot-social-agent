@@ -90,7 +90,10 @@ class PostEvaluator:
             r'\bjust\b', r'\bbreaking\b', r'\btoday\b', r'\bthis morning\b',
             r'\bhit\b.*\bhigh', r'\bup\b.*%', r'\bdown\b.*%', r'\brally\b',
             r'\breports?\b', r'\bearnings\b', r'\bafter\b.*\bmiss\b',
-            r'\bdemand\b', r'\bsurge\b', r'\bbroke\b.*resistance'
+            r'\bdemand\b', r'\bsurge\b', r'\bbroke\b.*resistance',
+            r'\btanked?\b', r'\bplunge[ds]?\b', r'\bshed\b', r'\bsell.?off\b',
+            r'\bacquisition\b', r'\bdeal\b', r'\bnews\b', r'\btrial\b',
+            r'\bfailed?\b', r'\bsoar', r'\bcrash', r'\bdrop(ped)?\b',
         ]
         news_hook = 1
         news_matches = sum(1 for p in news_patterns if re.search(p, post, re.IGNORECASE))
@@ -120,7 +123,9 @@ class PostEvaluator:
         # URGENCY: Check for urgency indicators
         urgency_patterns = [
             r'\bjust\b', r'\bnow\b', r'\btoday\b', r'\bthis week\b',
-            r'\bexpir', r'\bweekly\b', r'\bbefore\b', r"I'll take it"
+            r'\bexpir', r'\bweekly\b', r'\bbefore\b', r"I'll take it",
+            r'\bopportunity\b', r'\bmomentum\b', r'\bIV\b', r'\bpremium\b',
+            r'\bcatching\b', r'\boverreaction\b', r'\bdiscount\b',
         ]
         urgency = 1
         urgency_matches = sum(1 for p in urgency_patterns if re.search(p, post, re.IGNORECASE))

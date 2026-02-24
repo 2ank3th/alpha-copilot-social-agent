@@ -254,11 +254,11 @@ class TestAgentLoopEvaluationGate:
 
     @patch("agent.loop.Config")
     @patch("agent.loop.SYSTEM_PROMPT", "Test system prompt")
-    def test_write_post_evaluation_fail_aborts(self, mock_config):
-        """Test write_post evaluation failure aborts task."""
-        from agent.loop import AgentLoop, EvaluationFailedError
+    def test_write_post_evaluation_fail_retries(self, mock_config):
+        """Test write_post evaluation failure feeds back for retry."""
+        from agent.loop import AgentLoop
 
-        mock_config.MAX_ITERATIONS = 10
+        mock_config.MAX_ITERATIONS = 3
         mock_config.EVAL_TOTAL_MIN = 50
 
         mock_llm = Mock()
@@ -284,8 +284,10 @@ class TestAgentLoopEvaluationGate:
         agent = AgentLoop(mock_llm, mock_tools, mock_evaluator)
         result = agent.run("Create post")
 
-        assert "EVAL_FAILED" in result
-        assert "Score too low" in result
+        # Agent retries until max iterations instead of hard-stopping
+        assert "MAX_ITERATIONS_REACHED" in result
+        # LLM should have been called multiple times (retrying)
+        assert mock_llm.generate.call_count == 3
 
     @patch("agent.loop.Config")
     @patch("agent.loop.SYSTEM_PROMPT", "Test system prompt")

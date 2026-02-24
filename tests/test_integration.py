@@ -435,9 +435,9 @@ class TestAgentLoopIntegration:
         mock_evaluator.evaluate.assert_called_once()
         assert "TASK_COMPLETE" in result
 
-    def test_agent_fails_on_low_evaluation(self, mock_llm, mock_tools):
-        """Test that agent returns EVAL_FAILED on low score."""
-        # Create evaluator that fails
+    def test_agent_retries_on_low_evaluation(self, mock_llm, mock_tools):
+        """Test that eval failure feeds back to agent for retry instead of hard-stopping."""
+        # Create evaluator that always fails
         failing_evaluator = Mock(spec=PostEvaluator)
         failing_evaluator.evaluate.return_value = UnifiedScore(
             hookiness=HookinessScore(
@@ -466,7 +466,8 @@ class TestAgentLoopIntegration:
         agent = AgentLoop(mock_llm, mock_tools, failing_evaluator)
         result = agent.run("Create a post")
 
-        assert "EVAL_FAILED" in result
+        # Agent should retry until max iterations, not hard-stop
+        assert "MAX_ITERATIONS_REACHED" in result
 
     def test_agent_respects_max_iterations(self, mock_llm, mock_tools, mock_evaluator):
         """Test that agent stops at max iterations."""
