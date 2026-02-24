@@ -1,13 +1,8 @@
 name: Scheduled Posts
 
 on:
-  schedule:
-    # Weekdays only - all times in UTC (EST + 5)
-    - cron: '30 12 * * 1-5'   # 7:30 AM EST - pre-market
-    - cron: '0 15 * * 1-5'    # 10:00 AM EST - mid-morning engage
-    - cron: '0 17 * * 1-5'    # 12:00 PM EST - midday
-    - cron: '30 20 * * 1-5'   # 3:30 PM EST - power hour
-    - cron: '0 22 * * 1-5'    # 5:00 PM EST - after-hours engage
+  # Schedule disabled — Railway handles all cron scheduling via entrypoint.py
+  # See entrypoint.py for the full weekday schedule (14/15/17/20/22 UTC)
 
   workflow_dispatch:
     inputs:
