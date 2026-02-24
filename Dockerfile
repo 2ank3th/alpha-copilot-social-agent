@@ -17,5 +17,5 @@ COPY . .
 # Set Python path
 ENV PYTHONPATH=/app
 
-# Run agent - research market trends, form thesis, find options, post if compelling
-CMD ["python", "-m", "agent.main", "--task", "Research today's market trends to find a compelling trading idea. Form a thesis (what stock, why bullish/bearish, what catalyst). Use Alpha Copilot to find options matching your thesis. Post to twitter only if the idea is genuinely interesting. If nothing stands out, call done without posting."]
+# Entrypoint picks post type based on UTC hour + day of week
+CMD ["python", "entrypoint.py"]
