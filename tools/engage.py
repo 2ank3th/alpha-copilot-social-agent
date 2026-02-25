@@ -61,6 +61,23 @@ def _get_recent_reply_authors(hours: int = 24) -> set:
     return recent_authors
 
 
+def _get_recent_reply_tweet_ids(hours: int = 24) -> set:
+    """Get tweet IDs we've replied to in the last N hours."""
+    history = _load_reply_history()
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    recent_ids = set()
+    for entry in history:
+        try:
+            created = datetime.fromisoformat(entry["created_at"])
+            if created > cutoff:
+                tid = entry.get("tweet_id", "")
+                if tid:
+                    recent_ids.add(tid)
+        except (KeyError, ValueError):
+            continue
+    return recent_ids
+
+
 def _record_reply(tweet_id: str, author: str, reply_text: str) -> None:
     """Record a reply in the history."""
     history = _load_reply_history()
@@ -115,6 +132,9 @@ class SearchTweetsTool(BaseTool):
 
         search_prompt = (
             f"Find 3-5 popular recent tweets (from x.com or twitter.com) about: {query}\n\n"
+            "CRITICAL: Each tweet MUST be from a DIFFERENT author with a DIFFERENT tweet URL. "
+            "Do NOT return the same tweet URL twice. If you cannot find 3+ DISTINCT real tweet URLs, "
+            "return only the ones you can verify.\n\n"
             "For each tweet, provide:\n"
             "1. The EXACT tweet URL (must be a real x.com/username/status/ID URL)\n"
             "2. The author's @handle\n"
@@ -155,9 +175,32 @@ class SearchTweetsTool(BaseTool):
         )
 
         # Extract tweet IDs from URLs in the response
-        tweet_urls = re.findall(
+        raw_tweet_ids = re.findall(
             r'https?://(?:x\.com|twitter\.com)/\w+/status/(\d+)', result
         )
+
+        # Deduplicate preserving order
+        seen = set()
+        unique_tweet_ids = []
+        for tid in raw_tweet_ids:
+            if tid not in seen:
+                seen.add(tid)
+                unique_tweet_ids.append(tid)
+
+        if len(unique_tweet_ids) < len(raw_tweet_ids):
+            dupe_count = len(raw_tweet_ids) - len(unique_tweet_ids)
+            logger.warning(f"Removed {dupe_count} duplicate tweet IDs from search results")
+
+        # Filter out tweet IDs we've already replied to
+        recent_tweet_ids = _get_recent_reply_tweet_ids(hours=24)
+        fresh_tweet_ids = [tid for tid in unique_tweet_ids if tid not in recent_tweet_ids]
+
+        if len(fresh_tweet_ids) < len(unique_tweet_ids):
+            skipped = len(unique_tweet_ids) - len(fresh_tweet_ids)
+            logger.info(f"Filtered out {skipped} tweet IDs already replied to")
+
+        if len(fresh_tweet_ids) < 2:
+            logger.warning(f"Only {len(fresh_tweet_ids)} fresh unique tweets found — consider broadening search")
 
         # Check reply history to filter out authors we've already replied to
         recent_authors = _get_recent_reply_authors(hours=24)
@@ -169,19 +212,23 @@ class SearchTweetsTool(BaseTool):
             result.strip(),
             "",
             "=" * 40,
-            f"Found {len(tweet_urls)} tweet IDs: {', '.join(tweet_urls[:5])}",
+            f"Found {len(fresh_tweet_ids)} fresh unique tweet IDs: {', '.join(fresh_tweet_ids[:5])}",
         ]
 
+        if recent_tweet_ids & seen:
+            lines.append(f"\nALREADY REPLIED TO TWEETS (filtered out): {', '.join(recent_tweet_ids & seen)}")
+
         if recent_authors:
-            lines.append(f"\nALREADY REPLIED TO (skip these): {', '.join(recent_authors)}")
+            lines.append(f"\nALREADY REPLIED TO AUTHORS (skip these): {', '.join(recent_authors)}")
 
         lines.extend([
             "",
-            "NEXT: Pick the best tweet to reply to. Compose a helpful reply that:",
-            "- Adds genuine value or insight to the conversation",
-            "- References specific data or your perspective",
-            "- Optionally includes alphacopilot.app link ONLY if naturally relevant",
-            f"- Maximum {MAX_REPLIES_PER_RUN} replies per session",
+            "NEXT: Pick the best tweets to reply to. Each reply MUST be to a DIFFERENT tweet ID.",
+            "Compose replies that:",
+            "- Reference options data (IV rank, unusual flow, POP, premium levels)",
+            "- Make readers curious enough to check your profile",
+            "- Sound like a sharp options trader, not a generic commentator",
+            f"- Maximum {MAX_REPLIES_PER_RUN} replies per session, each to a DIFFERENT tweet",
         ])
 
         return "\n".join(lines)
@@ -199,6 +246,7 @@ class ReplyToTweetTool(BaseTool):
 
     def __init__(self):
         self._reply_count = 0
+        self._replied_tweet_ids = set()
 
     def get_schema(self) -> Dict[str, Any]:
         return {
@@ -241,6 +289,15 @@ class ReplyToTweetTool(BaseTool):
         if author.lower().lstrip("@") in recent_authors:
             return f"SKIP: Already replied to @{author} in the last 24 hours. Pick a different tweet."
 
+        # In-session tweet_id dedup
+        if tweet_id in self._replied_tweet_ids:
+            return f"DUPLICATE_TWEET: Already replied to tweet {tweet_id} this session. Pick a DIFFERENT tweet."
+
+        # Cross-session tweet_id dedup
+        recent_tweet_ids = _get_recent_reply_tweet_ids(hours=24)
+        if tweet_id in recent_tweet_ids:
+            return f"DUPLICATE_TWEET: Already replied to tweet {tweet_id} in last 24h. Pick a DIFFERENT tweet."
+
         # Validate reply length
         if len(reply_text) > 280:
             return f"TOO_LONG: Reply is {len(reply_text)} chars. Max 280. Shorten it."
@@ -253,6 +310,7 @@ class ReplyToTweetTool(BaseTool):
         if Config.DRY_RUN:
             logger.info(f"[DRY RUN] Would reply to tweet {tweet_id} by @{author}: {reply_text[:50]}...")
             self._reply_count += 1
+            self._replied_tweet_ids.add(tweet_id)
             return (
                 f"[DRY RUN] Reply composed for tweet {tweet_id} by @{author}:\n"
                 f"{reply_text}\n\n"
@@ -267,6 +325,7 @@ class ReplyToTweetTool(BaseTool):
 
         if result.get("success"):
             self._reply_count += 1
+            self._replied_tweet_ids.add(tweet_id)
             # Record in history
             _record_reply(tweet_id, author, reply_text)
 
